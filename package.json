@@ -1,0 +1,14 @@
+{
+  "name": "tennis-ipad",
+  "version": "1.0.0",
+  "description": "Tennis multiplayer touchscreen per browser mobile/iPad",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "express": "4.18.2",
+    "socket.io": "4.7.2"
+  }
+}
