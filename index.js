@@ -37,10 +37,12 @@ const COURT = {
   NET_OVERHANG: 0.914, // post extends past doubles sideline
 };
 
+// maxSpeed ridotto ~37% e accel/decel espressi come costanti di tempo (tau, in secondi):
+// accelTau = tempo per prendere velocità, decelTau = tempo per fermarsi (più alto = scivola).
 const COURT_PROFILES = {
-  clay:  { restY: 0.74, fricH: 0.78, playerAccel: 14,  playerDecel: 3.5, maxSpeed: 6.0, slide: 0.92 },
-  grass: { restY: 0.55, fricH: 0.96, playerAccel: 40,  playerDecel: 32,  maxSpeed: 6.4, slide: 0.35 },
-  hard:  { restY: 0.66, fricH: 0.88, playerAccel: 24,  playerDecel: 12,  maxSpeed: 6.2, slide: 0.55 },
+  clay:  { restY: 0.74, fricH: 0.78, accelTau: 0.22, decelTau: 0.46, maxSpeed: 3.7, slide: 0.90 },
+  grass: { restY: 0.55, fricH: 0.96, accelTau: 0.12, decelTau: 0.16, maxSpeed: 4.1, slide: 0.30 },
+  hard:  { restY: 0.66, fricH: 0.88, accelTau: 0.16, decelTau: 0.28, maxSpeed: 3.9, slide: 0.55 },
 };
 
 const TICK_HZ = 60;
@@ -60,6 +62,7 @@ const state = {
   score: createScoreState(),
   serverId: null,            // chi serve
   serveSide: 'right',        // right = deuce court, left = ad court (per chi serve)
+  serveBox: null,            // { xSign, zSign } box di servizio valido (diagonale)
   serveFault: 0,             // 0 primo servizio, 1 dopo fault
   pointTimer: 0,
   rallyCount: 0,
@@ -271,16 +274,29 @@ function setupServe() {
   state.phase = 'serving';
   state.serveFault = 0;
   state.rallyCount = 0;
-  // alterna lato: di solito dipende dal punteggio totale del game
-  const totalPts = state.score.points.A + state.score.points.B + (state.score.deuce ? 0 : 0);
-  state.serveSide = totalPts % 2 === 0 ? 'right' : 'left';
 
-  // posiziona il servitore nell'angolo corretto
-  const sideX = state.serveSide === 'right' ? 1 : -1;
-  const baseZ = sv.team === 'A' ? -COURT.BASELINE_Z : COURT.BASELINE_Z;
-  sv.x = sideX * (sv.team === 'A' ? -1 : 1) * 2.5;
-  sv.z = baseZ + (sv.team === 'A' ? -0.2 : 0.2);
-  sv.vx = 0; sv.vz = 0;
+  // Lato di battuta: punti pari = destra (deuce court), dispari = sinistra (ad court).
+  // In vantaggio si serve sempre dal lato ad (sinistra).
+  const s = state.score;
+  let parity;
+  if (s.tiebreak) parity = (s.tbPoints.A + s.tbPoints.B) % 2;
+  else if (s.advantage) parity = 1;
+  else parity = (s.points.A + s.points.B) % 2;
+  state.serveSide = parity === 0 ? 'right' : 'left';
+
+  // Sistema di riferimento globale: team A al fondo z<0 guarda +z, team B z>0 guarda -z.
+  const serverFace = sv.team === 'A' ? 1 : -1;     // direzione verso cui serve (segno z avversario)
+  // "destra" del servitore in x globale: per A è +x, per B è -x.
+  const rightSign = serverFace;
+  // Posizione di battuta: lato deuce/ad a ~1.9m dal centro, dietro la propria baseline.
+  const standSign = state.serveSide === 'right' ? rightSign : -rightSign;
+  sv.x = standSign * 1.9;
+  sv.z = serverFace > 0 ? -(COURT.BASELINE_Z + 0.15) : (COURT.BASELINE_Z + 0.15);
+  sv.vx = 0; sv.vz = 0; sv.targetVx = 0; sv.targetVz = 0;
+
+  // Box di servizio valido (diagonale): x dal lato opposto a dove sta il servitore,
+  // z tra la rete e la riga di servizio avversaria.
+  state.serveBox = { xSign: -standSign, zSign: serverFace };
 
   // palla in mano del servitore
   state.ball = {
@@ -302,42 +318,64 @@ function setupServe() {
   };
 }
 
-function performServe(p, charge, joyAngle) {
+// serveType: 'flat' | 'slice' | 'kick'. charge in 0..1 (già normalizzato dal client).
+function performServe(p, charge, joyAngle, serveType) {
   const ball = state.ball;
   if (!ball || !ball.held || state.serverId !== p.id) return;
 
   const sv = p;
-  // angolo verso il campo avversario
-  const opp = sv.team === 'A' ? 1 : -1;
-  // direzione lungo z verso opposto
-  let aimX = (joyAngle ? joyAngle.x : 0) * 2.5; // -1..1 → angolo laterale
-  // mira automatica: deuce court (serveSide right) → servizio diagonale in box "left" dell'avversario
-  // per il servitore: side x del servitore. Box di servizio incrociato.
-  const serverSign = sv.team === 'A' ? 1 : -1; // A guarda +z
-  let targetX = (state.serveSide === 'right' ? -1 : 1) * 1.5 * serverSign + aimX;
-  const targetZ = opp * (COURT.SERVICE_Z - 0.6 - Math.random() * 1.0);
+  const box = state.serveBox || { xSign: 1, zSign: sv.team === 'A' ? 1 : -1 };
+  const zSign = box.zSign;          // segno z del campo avversario
+  const xSign = box.xSign;          // lato x del box diagonale
+  const aimX = (joyAngle ? joyAngle.x : 0); // -1..1 piccola correzione manuale
 
-  // velocità
-  const power = 1.0 + charge * 0.6;
-  const speed = 38 * power; // m/s
-  const dx = targetX - sv.x;
-  const dz = targetZ - sv.z;
-  const dist = Math.hypot(dx, dz);
-  const ndx = dx / dist, ndz = dz / dist;
+  const tt = clamp(charge, 0, 1);
+  // potenza: cresce con la carica. precisione: massima vicino allo "sweet spot" (~0.8).
+  const power = 0.55 + 0.45 * Math.min(1, tt / 0.85);
+  const sweet = 0.8;
+  const off = Math.abs(tt - sweet);
+  const precise = off < 0.16;
 
-  // launch da 2.5m di altezza
+  // parametri per tipo di servizio (velocità già ridotte ~40%)
+  let base, spin, curve;
+  if (serveType === 'slice') {
+    base = 25; spin = -0.1; curve = xSign * 0.9;  // taglia di lato, curva verso il box
+  } else if (serveType === 'kick') {
+    base = 23; spin = 0.7; curve = 0;             // topspin → rimbalzo che salta
+  } else { // flat
+    base = 29; spin = 0.08; curve = 0;            // veloce, teso
+  }
+  const speed = base * power;
+
+  // bersaglio dentro il box diagonale
+  let targetX = xSign * (COURT.SINGLES_HALF_W * 0.55) + aimX * 1.6;
+  let targetZ = zSign * (COURT.SERVICE_Z - 1.0 - Math.random() * 0.8);
+  if (!precise) {
+    const err = Math.min(1.2, off * 1.5);
+    targetX += (Math.random() - 0.5) * 4.2 * err;
+    targetZ += zSign * Math.random() * 2.2 * err; // può andare lungo → fallo
+  }
+  if (tt < 0.4) {
+    // carica troppo debole: rischio rete
+    targetZ *= 0.35;
+  }
+
+  const launchY = 2.5;
   ball.x = sv.x;
-  ball.y = 2.5;
-  ball.z = sv.z + opp * 0.3;
-  // tempo di volo stimato
+  ball.y = launchY;
+  ball.z = sv.z + zSign * 0.3;
+  const dx = targetX - ball.x;
+  const dz = targetZ - ball.z;
+  const dist = Math.max(0.5, Math.hypot(dx, dz));
+  const ndx = dx / dist, ndz = dz / dist;
   const tFlight = dist / speed;
-  // vy iniziale per atterrare in targetZ ad altezza ~0.3
-  const g = 9.8;
-  const vy = (0.3 - 2.5) / tFlight + 0.5 * g * tFlight;
+  // gravità efficace: il topspin aggiunge spinta verso il basso, va compensata nell'arco.
+  const gEff = 9.8 + Math.max(0, spin) * 8.0;
   ball.vx = ndx * speed;
   ball.vz = ndz * speed;
-  ball.vy = vy;
-  ball.spin = 0.5; // leggero topspin
+  ball.vy = (0.25 - launchY) / tFlight + 0.5 * gEff * tFlight;
+  ball.spin = spin;
+  ball.curve = curve;
   ball.held = false;
   ball.inPlay = true;
   ball.lastHitter = sv.id;
@@ -350,8 +388,8 @@ function performServe(p, charge, joyAngle) {
   ball.type = 'serve';
   state.phase = 'rally';
   state.score.lastServeKmh = Math.round(speed * 3.6);
-  state.events.push({ type: 'serveHit', kmh: state.score.lastServeKmh, id: sv.id });
-  pushHitEffect(sv, 1.0);
+  state.events.push({ type: 'serveHit', kmh: state.score.lastServeKmh, id: sv.id, serveType: serveType || 'flat' });
+  pushHitEffect(sv, tt, precise ? 'perfect' : 'good', 'serve');
 }
 
 // ---------------------------------------------------------------------------
@@ -400,34 +438,36 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   let targetX = (joyAngle ? joyAngle.x : 0) * COURT.DOUBLES_HALF_W * 0.85;
   let targetZ = opp * (COURT.BASELINE_Z * 0.85);
   let height = 0.9; // altezza di atterraggio desiderata
-  let speed = 28;
+  let speed = 16;
   let vyBoost = 0;
   let spin = 0;
   let shotName = shotType;
 
+  // velocità ridotte ~40% e fortemente dipendenti dalla carica:
+  // colpo leggero (charge~0) = palla lenta, colpo carico (charge~1) = palla veloce.
   if (isSmash) {
     shotName = 'smash';
-    speed = 50;
+    speed = 24 + charge * 8;
     targetZ = opp * (COURT.SERVICE_Z + 1.5 + Math.random() * 2);
     height = 0.1;
     spin = 0.8;
   } else if (shotType === 'drive') {
-    speed = 30 + charge * 14;
+    speed = 14 + charge * 12;
     height = 0.4 + Math.random() * 0.4;
-    spin = 0.7;
+    spin = 0.6;
   } else if (shotType === 'lob') {
-    speed = 16 + charge * 6;
-    targetZ = opp * (COURT.BASELINE_Z * 0.9 - Math.random() * 1.5);
+    speed = 10 + charge * 4;
+    targetZ = opp * (COURT.BASELINE_Z * 0.85 - Math.random() * 1.5);
     height = 0.9;
-    vyBoost = 12 + charge * 3; // arco alto
+    vyBoost = 2; // l'arco alto nasce già dalla bassa velocità (tempo di volo lungo)
     spin = 0.3;
   } else if (shotType === 'drop') {
-    speed = 12 + charge * 4;
-    targetZ = opp * (1.2 + Math.random() * 1.0);
-    height = 0.2;
+    speed = 8 + charge * 2; // colpo di tocco: resta morbido anche caricato
+    targetZ = opp * (1.8 + Math.random() * 1.0);
+    height = 0.35;
     spin = -0.8; // backspin
   } else if (shotType === 'slice') {
-    speed = 22 + charge * 8;
+    speed = 13 + charge * 6;
     height = 0.3;
     spin = -0.6;
   }
@@ -464,15 +504,18 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   const distT = Math.max(0.5, Math.hypot(dxT, dzT));
   const ndx = dxT / distT, ndz = dzT / distT;
   const tFlight = distT / speed;
-  const g = 9.8;
+  // gravità efficace: topspin (spin>0) accorcia, backspin (spin<0) allunga.
+  // Compensiamo nell'arco così la palla atterra vicino al bersaglio voluto.
+  const gEff = Math.max(4, 9.8 + spin * 8.0);
   const launchY = isSmash ? 2.6 : 1.2;
   ball.x = p.x + ndx * 0.6;
   ball.y = launchY;
   ball.z = p.z + ndz * 0.6;
   ball.vx = ndx * speed;
   ball.vz = ndz * speed;
-  ball.vy = (height - launchY) / tFlight + 0.5 * g * tFlight + vyBoost;
+  ball.vy = (height - launchY) / tFlight + 0.5 * gEff * tFlight + vyBoost;
   ball.spin = spin;
+  ball.curve = shotName === 'slice' ? (joyAngle && joyAngle.x ? Math.sign(joyAngle.x) * 1.2 : 0) : 0;
   ball.lastHitter = p.id;
   ball.lastHitterTeam = p.team;
   ball.crossedNet = false;
@@ -522,6 +565,11 @@ function stepBall(dt) {
   ball.vy -= 9.8 * dt;
   // magnus: topspin spinge giù; backspin spinge su
   ball.vy -= ball.spin * 8.0 * dt;
+  // sidespin (slice): curva laterale mentre la palla è in volo
+  if (ball.curve) {
+    ball.vx += ball.curve * 5.0 * dt;
+    ball.curve *= (1 - dt * 0.5);
+  }
 
   ball.x += ball.vx * dt;
   ball.y += ball.vy * dt;
@@ -564,11 +612,10 @@ function stepBall(dt) {
     const inBounds = ballInBounds(ball);
     const sideOfBounce = ball.z < 0 ? 'A' : 'B';
 
-    // se primo rimbalzo dopo servizio → deve essere nel box di servizio
+    // se primo rimbalzo dopo servizio → deve essere nel box di servizio diagonale
     if (ball.type === 'serve' && ball.bounces === 0) {
-      const serverP = state.players[state.serverId];
-      const oppZsign = serverP && serverP.team === 'A' ? 1 : -1;
-      const ok = isInServiceBox(ball.x, ball.z, oppZsign, state.serveSide);
+      const box = state.serveBox || { xSign: 1, zSign: 1 };
+      const ok = isInServiceBox(ball.x, ball.z, box.zSign, box.xSign);
       if (!ok) {
         // fault
         handleFault();
@@ -621,22 +668,13 @@ function ballInBounds(b) {
   return Math.abs(b.x) <= hw + 0.05 && Math.abs(b.z) <= COURT.BASELINE_Z + 0.05;
 }
 
-function isInServiceBox(x, z, oppZsign, serveSide) {
-  // oppZsign: +1 se l'avversario è nel campo +z, -1 altrimenti
-  // box: z tra 0 e oppZsign*SERVICE_Z, lato corretto
-  const inZ = oppZsign > 0 ? (z > 0 && z <= COURT.SERVICE_Z) : (z < 0 && z >= -COURT.SERVICE_Z);
+function isInServiceBox(x, z, zSign, xSign) {
+  // zSign: segno z del campo avversario; xSign: lato x del box diagonale.
+  const inZ = zSign > 0 ? (z > 0.05 && z <= COURT.SERVICE_Z) : (z < -0.05 && z >= -COURT.SERVICE_Z);
   if (!inZ) return false;
-  // larghezza singolare
-  const hw = COURT.SINGLES_HALF_W;
-  if (Math.abs(x) > hw) return false;
-  // diagonale: serveSide right → palla cade nel box a sinistra dell'avversario (deuce court avversario)
-  // semplificazione: serveSide right → x avversario "destra" che è x>0 nel sistema globale se servitore in team A right.
-  // qui forziamo solo che la palla cada in metà corretta:
-  // serveSide 'right' (deuce) → la palla deve cadere in x con segno = +oppZsign? semplifichiamo:
-  // se serveSide right → palla nella metà x>0 (sistema globale)
-  // se serveSide left  → metà x<0
-  // (Nei sistemi reali è incrociato; questa approssimazione tiene il gameplay funzionante.)
-  return serveSide === 'right' ? x > -0.1 : x < 0.1;
+  if (Math.abs(x) > COURT.SINGLES_HALF_W) return false;
+  // deve cadere sul lato x corretto (con piccola tolleranza al centro)
+  return xSign > 0 ? x > -0.1 : x < 0.1;
 }
 
 function handleFault() {
@@ -682,17 +720,28 @@ function awardPoint(team) {
 function stepPlayers(dt) {
   const prof = COURT_PROFILES[state.court];
   for (const p of Object.values(state.players)) {
+    // Il servitore resta fermo durante la fase di servizio: non si muove da solo.
+    if (state.phase === 'serving' && p.id === state.serverId) {
+      p.vx = 0; p.vz = 0; p.targetVx = 0; p.targetVz = 0;
+      p.slide = Math.max(0, p.slide - dt * 2);
+      p.swingT = Math.max(0, (p.swingT || 0) - dt * 4);
+      continue;
+    }
     // target velocity da joystick
-    const tvx = p.targetVx * prof.maxSpeed * (p.stamina < 0.2 ? 0.55 : 1);
-    const tvz = p.targetVz * prof.maxSpeed * (p.stamina < 0.2 ? 0.55 : 1);
-    const accel = (Math.abs(tvx) + Math.abs(tvz) > 0.1) ? prof.playerAccel : prof.playerDecel;
-    p.vx += clamp(tvx - p.vx, -accel * dt, accel * dt);
-    p.vz += clamp(tvz - p.vz, -accel * dt, accel * dt);
+    const tvx = p.targetVx * prof.maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
+    const tvz = p.targetVz * prof.maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
+
+    // smoothing esponenziale: accelera/decelera in modo morbido e "pesante".
+    const moving = (Math.abs(tvx) + Math.abs(tvz)) > 0.05;
+    const tau = moving ? prof.accelTau : prof.decelTau;
+    const k = 1 - Math.exp(-dt / tau);
+    p.vx += (tvx - p.vx) * k;
+    p.vz += (tvz - p.vz) * k;
 
     // slide: rilevamento cambio direzione brusco
     p.slide = Math.max(0, p.slide - dt * 2);
     const dot = (p.lastTargetVx || 0) * tvx + (p.lastTargetVz || 0) * tvz;
-    if (dot < -0.4 && (Math.abs(p.vx) + Math.abs(p.vz)) > 2.5) {
+    if (dot < -0.4 && (Math.abs(p.vx) + Math.abs(p.vz)) > 2.0) {
       p.slide = Math.min(1, p.slide + prof.slide * 0.6);
     }
     p.lastTargetVx = tvx; p.lastTargetVz = tvz;
@@ -769,6 +818,7 @@ setInterval(() => {
     mode: gameMode(),
     serverId: state.serverId,
     serveSide: state.serveSide,
+    serveBox: state.serveBox,
     serveFault: state.serveFault,
     rallyCount: state.rallyCount,
     energy: state.energy,
@@ -877,7 +927,7 @@ io.on('connection', (socket) => {
     p.chargeT = Math.min(1.5, t);
   });
 
-  socket.on('shot', ({ shot, charge, angle, useSuper }) => {
+  socket.on('shot', ({ shot, charge, angle, useSuper, serveType }) => {
     const p = state.players[socket.id];
     if (!p) return;
     p.charging = false;
@@ -885,7 +935,7 @@ io.on('connection', (socket) => {
     p.swingT = 1.0;
     const ch = clamp((charge || 0) / 1.5, 0, 1);
     if (state.phase === 'serving' && state.serverId === socket.id) {
-      performServe(p, ch, angle || { x: 0, y: 0 });
+      performServe(p, ch, angle || { x: 0, y: 0 }, serveType || 'flat');
     } else if (state.phase === 'rally') {
       performShot(p, shot, ch, angle || { x: 0, y: 0 }, !!useSuper);
     }

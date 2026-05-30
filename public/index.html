@@ -107,6 +107,36 @@
   .super-ready .super-ring { opacity: 1; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  #shots.hidden { display: none; }
+
+  /* ============ SERVE PANEL ============ */
+  #servePanel { position: absolute; right: 18px; bottom: 18px; z-index: 26; display: none;
+    flex-direction: column; align-items: stretch; gap: 10px; width: 220px;
+    background: linear-gradient(180deg, rgba(15,20,40,0.92), rgba(8,12,28,0.92));
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 16px; padding: 12px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
+  #servePanel.show { display: flex; }
+  .serve-title { font-size: 11px; letter-spacing: 0.14em; opacity: 0.7; text-align: center; text-transform: uppercase; }
+  .serve-types { display: flex; gap: 6px; }
+  .serve-type { flex: 1; padding: 9px 4px; border-radius: 10px; border: 2px solid rgba(255,255,255,0.16);
+    background: rgba(255,255,255,0.06); font-size: 10px; font-weight: 800; letter-spacing: 0.04em;
+    text-align: center; cursor: pointer; line-height: 1.3; color: #fff; transition: transform 0.1s, border-color 0.12s; }
+  .serve-type small { display: block; font-size: 8px; font-weight: 600; opacity: 0.6; letter-spacing: 0; }
+  .serve-type.sel { border-color: #ffd166; background: rgba(255,209,102,0.18); color: #ffd166; }
+  .serve-type:active { transform: scale(0.95); }
+  .serve-power { position: relative; height: 16px; border-radius: 8px; overflow: hidden;
+    background: #14203a; border: 1px solid rgba(255,255,255,0.12); }
+  .serve-power-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+    background: linear-gradient(90deg, #06d6a0, #ffd166, #ff4444); transition: width 0.04s linear; }
+  /* zona "sweet spot" (release qui = servizio preciso) */
+  .serve-sweet { position: absolute; top: 0; bottom: 0; left: 64%; width: 32%;
+    background: rgba(6,214,160,0.30); border-left: 1px solid rgba(255,255,255,0.6); border-right: 1px solid rgba(255,255,255,0.6); }
+  .serve-go { padding: 14px; border-radius: 12px; border: 0; cursor: pointer;
+    background: linear-gradient(180deg, #06d6a0, #06a886); color: #fff; font-weight: 900; letter-spacing: 0.1em;
+    font-size: 15px; box-shadow: 0 6px 18px rgba(6,214,160,0.4); }
+  .serve-go.held { transform: scale(0.96); filter: brightness(1.2); }
+  .serve-hint { font-size: 9px; opacity: 0.55; text-align: center; letter-spacing: 0.04em; }
+
   /* ============ EMOTES ============ */
   #emotes { position: absolute; top: env(safe-area-inset-top, 0); right: 8px; display: flex; flex-direction: column; gap: 6px; padding: 8px; z-index: 22; }
   .emote {
@@ -162,6 +192,17 @@
   <div class="sb lob" data-shot="lob">LOB</div>
   <div class="sb drop" data-shot="drop">DROP</div>
   <div class="sb slice" data-shot="slice">SLICE</div>
+</div>
+<div id="servePanel">
+  <div class="serve-title">Servizio</div>
+  <div class="serve-types">
+    <div class="serve-type sel" data-serve="flat">PIATTO<small>veloce</small></div>
+    <div class="serve-type" data-serve="slice">SLICE<small>curvo</small></div>
+    <div class="serve-type" data-serve="kick">KICK<small>rimbalzo</small></div>
+  </div>
+  <div class="serve-power"><div class="serve-sweet"></div><div class="serve-power-fill" id="servePowerFill"></div></div>
+  <button class="serve-go" id="serveGo">TIENI PER CARICARE</button>
+  <div class="serve-hint">Rilascia sulla zona chiara per servire preciso</div>
 </div>
 <div id="emotes">
   <div class="emote" data-key="mine">Mia!</div>
@@ -481,6 +522,56 @@ document.querySelectorAll('.emote').forEach((el) => {
 });
 
 // =========================================================================
+// Servizio: scelta tipo + barra potenza/precisione (tieni premuto, rilascia)
+// =========================================================================
+let serveType = 'flat';
+let serveCharging = null;
+let serveChargeTimer = null;
+const serveGo = document.getElementById('serveGo');
+const servePowerFill = document.getElementById('servePowerFill');
+
+document.querySelectorAll('.serve-type').forEach((el) => {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.serve-type').forEach(t => t.classList.remove('sel'));
+    el.classList.add('sel');
+    serveType = el.dataset.serve;
+  });
+});
+
+function serveDown(e) {
+  e.preventDefault();
+  if (serveCharging) return;
+  serveCharging = { startT: performance.now() };
+  serveGo.classList.add('held');
+  serveGo.textContent = 'RILASCIA PER SERVIRE';
+  socket.emit('chargeStart', {});
+  if (serveChargeTimer) clearInterval(serveChargeTimer);
+  serveChargeTimer = setInterval(() => {
+    if (!serveCharging) return;
+    const t = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
+    servePowerFill.style.width = Math.min(100, (t / 1.5) * 100) + '%';
+    socket.emit('chargeTick', { t });
+  }, 40);
+}
+function serveUp(e) {
+  if (!serveCharging) return;
+  e && e.preventDefault();
+  const charge = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
+  serveCharging = null;
+  if (serveChargeTimer) { clearInterval(serveChargeTimer); serveChargeTimer = null; }
+  serveGo.classList.remove('held');
+  serveGo.textContent = 'TIENI PER CARICARE';
+  servePowerFill.style.width = '0%';
+  const flip = (myTeam === 'B') ? -1 : 1;
+  const angle = { x: joy.x * flip, y: joy.y * flip };
+  socket.emit('shot', { shot: 'serve', charge, angle, serveType });
+}
+serveGo.addEventListener('pointerdown', serveDown);
+serveGo.addEventListener('pointerup', serveUp);
+serveGo.addEventListener('pointercancel', serveUp);
+
+// =========================================================================
 // Particle system (oggetto pool)
 // =========================================================================
 const particles = [];
@@ -543,6 +634,35 @@ function drawStar(x, y, r, n, color) {
   ctx.closePath(); ctx.fill();
 }
 
+// Pop ring + flash al contatto racchetta-palla
+const popRings = [];
+function spawnPop(x, y, z, color) {
+  popRings.push({ x, y, z, t: 0, life: 0.34, color: color || '#ffffff' });
+}
+function stepPops(dt) {
+  for (let i = popRings.length - 1; i >= 0; i--) {
+    popRings[i].t += dt;
+    if (popRings[i].t >= popRings[i].life) popRings.splice(i, 1);
+  }
+}
+function drawPops() {
+  for (const r of popRings) {
+    const k = r.t / r.life;
+    const pr = project(r.x, r.y, r.z);
+    const rad = (10 + k * 46) * (pr.s / view.cam.nearScale);
+    ctx.globalAlpha = (1 - k) * 0.9;
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = (1 - k) * 4 + 1;
+    ctx.beginPath(); ctx.arc(pr.x, pr.y, rad, 0, Math.PI * 2); ctx.stroke();
+    if (k < 0.4) {
+      ctx.globalAlpha = (0.45 - k);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, rad * 0.45, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
 // Marks (segni rimbalzo) — gestiti dal server in ball.marks ma teniamo anche pool locali per estetica
 const localMarks = [];
 function addMark(x, z, court) {
@@ -591,6 +711,9 @@ function processEvents(events) {
           pSpawn({ x: ev.x, y: 1.2, z: ev.z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3, life: 0.4, color: c, size: 3 });
         }
       }
+      // pop di contatto: flash bianco + cerchio che si espande sul punto d'impatto
+      spawnPop(ev.x, 1.1, ev.z, '#ffffff');
+      if (ev.timing === 'perfect' || ev.super) spawnPop(ev.x, 1.1, ev.z, ev.super ? '#ff006e' : '#06d6a0');
       if (ev.shot === 'smash') { shake(2.2, 0.5); flash(0.4); slowmoT = 0.25; }
       if (ev.super) { shake(2.5, 0.6); flash(0.7); }
     } else if (ev.type === 'perfect') {
@@ -801,15 +924,13 @@ function drawCourt(theme) {
   line3D(0, -COURT.BASELINE_Z, 0, -COURT.BASELINE_Z + 0.3);
   line3D(0, COURT.BASELINE_Z, 0, COURT.BASELINE_Z - 0.3);
 
-  // evidenzia area servizio se in fase servizio
-  if (serverState && serverState.phase === 'serving' && serverState.serverId && myId) {
-    const sv = (serverState.players || []).find(p => p.id === serverState.serverId);
-    if (sv) {
-      const oppZsign = sv.team === 'A' ? 1 : -1;
-      const xSign = serverState.serveSide === 'right' ? 1 : -1;
-      // box: x in [0, xSign*SINGLES_HALF_W], z in [0, oppZsign*SERVICE_Z]
-      const x0 = 0, x1 = xSign * COURT.SINGLES_HALF_W;
-      const z0 = 0, z1 = oppZsign * COURT.SERVICE_Z;
+  // evidenzia area servizio valida (box diagonale) durante la fase di servizio
+  if (serverState && serverState.phase === 'serving' && serverState.serveBox) {
+    const box = serverState.serveBox;
+    {
+      // box: x in [0, xSign*SINGLES_HALF_W], z in [0, zSign*SERVICE_Z]
+      const x0 = 0, x1 = box.xSign * COURT.SINGLES_HALF_W;
+      const z0 = 0, z1 = box.zSign * COURT.SERVICE_Z;
       const ax = Math.min(x0, x1), bx = Math.max(x0, x1);
       const az = Math.min(z0, z1), bz = Math.max(z0, z1);
       const q1 = project(ax, 0, az);
@@ -924,50 +1045,102 @@ function drawNet() {
   ctx.restore();
 }
 
-// Player: figura articolata
+// =========================================================================
+// Stato animazione per-giocatore (interpolato lato client per fluidità)
+// =========================================================================
+const animStates = {};
+function updateAnim(p, dt) {
+  let a = animStates[p.id];
+  if (!a) { a = animStates[p.id] = { run: Math.random() * 6, breath: Math.random() * 6, swing: 0, lean: 0, speedN: 0 }; }
+  const speed = Math.hypot(p.vx || 0, p.vz || 0);
+  const speedN = Math.min(1, speed / 3.9);
+  a.speedN += (speedN - a.speedN) * Math.min(1, dt * 10);
+  // ciclo gambe avanza proporzionalmente alla velocità reale
+  a.run += dt * (2.0 + a.speedN * 10);
+  a.breath += dt * 1.8;
+  // swing smussato verso swingT del server (transizione morbida, niente scatti)
+  a.swing += ((p.swingT || 0) - a.swing) * Math.min(1, dt * 16);
+  // orientamento verso la palla (lean orizzontale -1..1)
+  let tl = 0;
+  const b = interpState && interpState.ball;
+  if (b) tl = Math.max(-1, Math.min(1, (b.x - p.x) / 2.5));
+  a.lean += (tl - a.lean) * Math.min(1, dt * 7);
+  return a;
+}
+
+function drawHitZone(p, sp) {
+  const b = interpState.ball;
+  const dist = Math.hypot(b.x - p.x, b.z - p.z);
+  const REACH = 2.0;
+  const perfectR = Math.max(0.35, 0.7 - (serverState.rallyCount || 0) * 0.02);
+  const reachable = b.y < 3.6;
+  let color, fill, glow = false;
+  if (reachable && dist <= perfectR) { color = 'rgba(6,214,160,0.95)'; fill = 'rgba(6,214,160,0.24)'; glow = true; }
+  else if (reachable && dist <= REACH * 0.85) { color = 'rgba(130,230,140,0.7)'; fill = 'rgba(130,230,140,0.12)'; }
+  else if (reachable && dist <= REACH) { color = 'rgba(255,209,102,0.75)'; fill = 'rgba(255,209,102,0.10)'; }
+  else { color = 'rgba(255,255,255,0.16)'; fill = 'rgba(255,255,255,0.04)'; }
+  const rx = REACH * sp.s, ry = REACH * sp.s * 0.42;
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+  if (glow) { ctx.shadowColor = '#06d6a0'; ctx.shadowBlur = 16; }
+  ctx.strokeStyle = color; ctx.lineWidth = glow ? 3.5 : 2;
+  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.shadowBlur = 0;
+  // anello "perfetto" interno
+  ctx.strokeStyle = glow ? 'rgba(255,255,255,0.9)' : 'rgba(6,214,160,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, perfectR * sp.s, perfectR * sp.s * 0.42, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+// Player: figura articolata con animazione interpolata
 function drawPlayer(p, dt) {
+  const a = updateAnim(p, dt);
   const tc = TEAM_COLOR[p.team];
   const shirt = p.color || tc.main;
-  const baseY = 0;
   const head = 0.32, torso = 0.55, legs = 0.85;
   const isMe = p.id === myId;
 
-  // shadow
+  // respiro idle + leggero abbassamento in corsa + lean verso palla
+  const idle = a.speedN < 0.12;
+  const breath = idle ? Math.sin(a.breath) * 0.025 : 0;
+  const crouch = a.speedN * 0.06;
+  const lean = a.lean;
+  const leanX = lean * 0.18;
+  const ph = a.run;
+
   const sp = project(p.x, 0, p.z);
+  const sc = sp.s / view.cam.nearScale;
+
+  // ombra
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.45)';
   ctx.beginPath();
-  ctx.ellipse(sp.x, sp.y, 22 * (sp.s / view.cam.nearScale), 8 * (sp.s / view.cam.nearScale), 0, 0, Math.PI * 2);
+  ctx.ellipse(sp.x, sp.y, 22 * sc, 8 * sc, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
-  // animazione corsa (gambe)
-  const speed = Math.hypot(p.vx || 0, p.vz || 0);
-  const runPhase = (performance.now() / 120) * (1 + speed * 0.18);
+  // HIT ZONE (solo per me, durante il rally): verde=perfetto, giallo=ok, grigio=lontano
+  if (isMe && serverState && serverState.phase === 'rally' && interpState && interpState.ball) {
+    drawHitZone(p, sp);
+  }
 
-  // slide tilt
-  const slide = p.slide || 0;
+  // articolazioni
+  const hip = project(p.x + leanX * 0.4, legs - crouch + breath, p.z);
+  const sh = project(p.x + leanX, torso + legs - 0.25 - crouch + breath, p.z);
+  const hd = project(p.x + leanX * 1.1, head + torso + legs - crouch + breath, p.z);
 
-  // swing arc (0 → 1)
-  const swing = Math.max(0, Math.min(1, p.swingT || 0));
-
-  // posizione "anca"
-  const hip = project(p.x, legs, p.z);
-  const sh = project(p.x, torso + legs - 0.25, p.z);  // spalla
-  const hd = project(p.x, head + torso + legs, p.z);
-  const sc = sp.s / view.cam.nearScale;
-
-  // GAMBE
+  // GAMBE: ampiezza/frequenza passo proporzionali alla velocità
   ctx.strokeStyle = '#1a1a1a';
-  ctx.lineWidth = 8 * sc;
-  ctx.lineCap = 'round';
-  const legSwing = Math.sin(runPhase) * (0.6 + slide * 0.2);
-  // gamba sx
-  const fL = project(p.x - 0.25 * Math.cos(slide), 0, p.z + Math.sin(runPhase) * 0.18);
-  const fR = project(p.x + 0.25 * Math.cos(slide), 0, p.z - Math.sin(runPhase) * 0.18);
+  ctx.lineWidth = 8 * sc; ctx.lineCap = 'round';
+  const stride = 0.10 + a.speedN * 0.34;
+  const lift = a.speedN * 0.12;
+  const legAx = Math.sin(ph), legBx = Math.sin(ph + Math.PI);
+  const fL = project(p.x - 0.22 + legAx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph))), p.z + legAx * stride * 0.4);
+  const fR = project(p.x + 0.22 + legBx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph + Math.PI))), p.z + legBx * stride * 0.4);
   ctx.beginPath(); ctx.moveTo(hip.x - 6 * sc, hip.y); ctx.lineTo(fL.x, fL.y); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(hip.x + 6 * sc, hip.y); ctx.lineTo(fR.x, fR.y); ctx.stroke();
-  // scarpe
   ctx.fillStyle = '#fff';
   ctx.beginPath(); ctx.ellipse(fL.x, fL.y, 7 * sc, 4 * sc, 0, 0, Math.PI * 2); ctx.fill();
   ctx.beginPath(); ctx.ellipse(fR.x, fR.y, 7 * sc, 4 * sc, 0, 0, Math.PI * 2); ctx.fill();
@@ -983,36 +1156,35 @@ function drawPlayer(p, dt) {
   ctx.lineTo(sh.x - 16 * sc, sh.y);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  // numero squadra
   ctx.fillStyle = '#fff';
   ctx.font = `bold ${Math.round(12 * sc)}px sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(p.team, (hip.x + sh.x) / 2, (hip.y + sh.y) / 2);
 
-  // braccia + racchetta
-  const armSwingAng = swing > 0 ? (-Math.PI * 0.9 + swing * Math.PI * 1.5) : (Math.sin(runPhase + Math.PI) * 0.4 - 0.3);
-  // braccio della racchetta (destro)
+  // BRACCIA + racchetta: swing in 3 fasi smussate (caricamento → contatto → follow-through)
+  const env = Math.max(0, Math.min(1, a.swing));
+  // braccio idle/corsa coordinato con le gambe; durante lo swing sweep guidato da env
+  const idleArm = Math.sin(ph + Math.PI) * 0.35 * a.speedN - 0.3;
+  const armSwingAng = env > 0.01 ? (-Math.PI * 0.9 + env * Math.PI * 1.5 + lean * 0.4) : idleArm;
   const racX = sh.x + Math.cos(armSwingAng) * 36 * sc;
   const racY = sh.y + Math.sin(armSwingAng) * 36 * sc;
   ctx.strokeStyle = '#e0c9a0';
   ctx.lineWidth = 6 * sc;
   ctx.beginPath(); ctx.moveTo(sh.x + 14 * sc, sh.y); ctx.lineTo(racX, racY); ctx.stroke();
-  // racchetta
   drawRacket(racX, racY, armSwingAng + Math.PI / 2, sc);
-  // braccio sx
+  // braccio libero
   const armL = -armSwingAng * 0.4 - 1.2;
   ctx.strokeStyle = '#e0c9a0';
   ctx.beginPath(); ctx.moveTo(sh.x - 14 * sc, sh.y); ctx.lineTo(sh.x - 14 * sc + Math.cos(armL) * 30 * sc, sh.y + Math.sin(armL) * 30 * sc); ctx.stroke();
 
-  // TESTA
+  // TESTA (orientata verso la palla)
   ctx.fillStyle = '#e8b27a';
   ctx.beginPath();
   ctx.arc(hd.x, hd.y, 14 * sc, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
-  // capelli
   ctx.fillStyle = '#2a1810';
   ctx.beginPath();
-  ctx.arc(hd.x, hd.y - 6 * sc, 14 * sc, Math.PI, Math.PI * 2);
+  ctx.arc(hd.x + lean * 3 * sc, hd.y - 6 * sc, 14 * sc, Math.PI, Math.PI * 2);
   ctx.fill();
 
   // nome
@@ -1029,7 +1201,7 @@ function drawPlayer(p, dt) {
     ctx.strokeStyle = `rgba(255, 209, 102, ${0.4 + pulse * 0.5})`;
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.ellipse(sp.x, sp.y, 30 * (sp.s / view.cam.nearScale), 12 * (sp.s / view.cam.nearScale), 0, 0, Math.PI * 2);
+    ctx.ellipse(sp.x, sp.y, 30 * sc, 12 * sc, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -1055,34 +1227,6 @@ function drawPlayer(p, dt) {
     ctx.stroke();
   }
 
-  // TIMING ring (perfect/good zones) per il "mio" player durante rally
-  if (isMe && serverState && (serverState.phase === 'rally' || serverState.phase === 'serving') && serverState.ball) {
-    const b = (interpState && interpState.ball) || serverState.ball;
-    const dx = b.x - p.x, dz = b.z - p.z;
-    const dist = Math.hypot(dx, dz);
-    const perfectR = Math.max(0.35, 0.7 - (serverState.rallyCount || 0) * 0.02);
-    const goodR = 2.0 * 0.85;
-    const reachR = 2.0;
-    // perfect (verde)
-    ctx.strokeStyle = 'rgba(6, 214, 160, 0.55)';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.ellipse(sp.x, sp.y, perfectR * 60 * sc, perfectR * 22 * sc, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    // good (gialla)
-    ctx.strokeStyle = 'rgba(255, 209, 102, 0.4)';
-    ctx.beginPath();
-    ctx.ellipse(sp.x, sp.y, goodR * 60 * sc, goodR * 22 * sc, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    // reach esterna
-    ctx.strokeStyle = 'rgba(255, 100, 100, 0.25)';
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.ellipse(sp.x, sp.y, reachR * 60 * sc, reachR * 22 * sc, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
   // EMOTE bubble
   if (p.emote) {
     const txt = { mine: 'Mia!', nice: 'Grande!', no: 'Nooo!', go: 'Dai!' }[p.emote.key] || '!';
@@ -1098,7 +1242,7 @@ function drawPlayer(p, dt) {
   }
 
   // particelle slide su terra rossa
-  if (slide > 0.3 && serverState && serverState.court === 'clay' && Math.random() < 0.4) {
+  if ((p.slide || 0) > 0.3 && serverState && serverState.court === 'clay' && Math.random() < 0.4) {
     pSpawn({ x: p.x + (Math.random() - 0.5) * 0.4, y: 0.05, z: p.z + (Math.random() - 0.5) * 0.4,
       vx: (Math.random() - 0.5) * 2, vy: 0.5 + Math.random() * 1.5, vz: (Math.random() - 0.5) * 2,
       life: 0.4, color: COURT_THEMES.clay.particle[Math.floor(Math.random() * 4)], size: 2.5 });
@@ -1266,6 +1410,11 @@ function renderHud() {
   } else {
     shotsEl.classList.remove('super-ready');
   }
+
+  // durante il mio servizio mostro il pannello servizio e nascondo i tasti colpo
+  const iAmServing = serverState.phase === 'serving' && serverState.serverId === myId;
+  document.getElementById('servePanel').classList.toggle('show', iAmServing);
+  shotsEl.classList.toggle('hidden', iAmServing);
 }
 
 // energy meter ai bordi (canvas-side)
@@ -1351,6 +1500,10 @@ function frame(now) {
     if (s.phase === 'serving' && s.serverId === myId && s.ball) {
       drawServeAim(s);
     }
+    // freccia di mira mentre carico un colpo nel rally
+    if (charging && s.phase === 'rally') {
+      drawShotAim(s);
+    }
 
     // palla
     if (s.ball) {
@@ -1365,9 +1518,11 @@ function frame(now) {
       trail.length = 0;
     }
 
-    // particelle
+    // particelle + pop di contatto
     pStep(dt);
     pDraw();
+    stepPops(dt);
+    drawPops();
 
     drawEnergyMeters();
   }
@@ -1382,29 +1537,43 @@ requestAnimationFrame((t) => { lastFrameT = t; frame(t); });
 function drawServeAim(s) {
   const sv = s.players.find(p => p.id === myId);
   if (!sv) return;
-  // direzione mirata = joystick (in world coords)
   const flip = (myTeam === 'B') ? -1 : 1;
   const ax = (joy.x || 0) * flip;
-  // sempre verso campo avversario
   const opp = sv.team === 'A' ? 1 : -1;
-  const tx = ax * COURT.SINGLES_HALF_W;
-  const tz = opp * (COURT.SERVICE_Z - 1.2);
-  const a = project(sv.x, 0.1, sv.z);
-  const b = project(tx, 0.1, tz);
-  // freccia
+  // punta al box di servizio diagonale valido (coerente col server)
+  const box = s.serveBox || { xSign: opp > 0 ? 1 : -1, zSign: opp };
+  const tx = box.xSign * (COURT.SINGLES_HALF_W * 0.55) + ax * 1.6;
+  const tz = box.zSign * (COURT.SERVICE_Z - 1.0);
+  drawAimArrow(sv.x, sv.z, tx, tz, '#ffd166');
+}
+
+// freccia di mira per i colpi nel rally: direzione = inclinazione joystick verso il campo avversario
+function drawShotAim(s) {
+  const me = s.players.find(p => p.id === myId);
+  if (!me) return;
+  const flip = (myTeam === 'B') ? -1 : 1;
+  const ax = (joy.x || 0) * flip;
+  const opp = me.team === 'A' ? 1 : -1;
+  const tx = me.x + ax * 7;
+  const tz = me.z + opp * 9;
+  drawAimArrow(me.x, me.z, tx, tz, 'rgba(116,192,252,0.9)');
+}
+
+function drawAimArrow(x0, z0, x1, z1, color) {
+  const a = project(x0, 0.12, z0);
+  const b = project(x1, 0.12, z1);
   ctx.save();
-  ctx.strokeStyle = '#ffd166';
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3.5;
   ctx.setLineDash([10, 6]);
   ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   ctx.setLineDash([]);
-  // freccia testa
   const ang = Math.atan2(b.y - a.y, b.x - a.x);
-  ctx.fillStyle = '#ffd166';
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(b.x, b.y);
-  ctx.lineTo(b.x - Math.cos(ang - 0.5) * 16, b.y - Math.sin(ang - 0.5) * 16);
-  ctx.lineTo(b.x - Math.cos(ang + 0.5) * 16, b.y - Math.sin(ang + 0.5) * 16);
+  ctx.lineTo(b.x - Math.cos(ang - 0.5) * 15, b.y - Math.sin(ang - 0.5) * 15);
+  ctx.lineTo(b.x - Math.cos(ang + 0.5) * 15, b.y - Math.sin(ang + 0.5) * 15);
   ctx.closePath(); ctx.fill();
   ctx.restore();
 }
