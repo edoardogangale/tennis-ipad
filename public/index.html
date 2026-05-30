@@ -131,7 +131,7 @@
   /* zona "sweet spot" (release qui = servizio preciso) */
   .serve-sweet { position: absolute; top: 0; bottom: 0; left: 64%; width: 32%;
     background: rgba(6,214,160,0.30); border-left: 1px solid rgba(255,255,255,0.6); border-right: 1px solid rgba(255,255,255,0.6); }
-  .serve-go { padding: 14px; border-radius: 12px; border: 0; cursor: pointer;
+  .serve-go { padding: 14px; border-radius: 12px; border: 0; cursor: pointer; touch-action: none; user-select: none;
     background: linear-gradient(180deg, #06d6a0, #06a886); color: #fff; font-weight: 900; letter-spacing: 0.1em;
     font-size: 15px; box-shadow: 0 6px 18px rgba(6,214,160,0.4); }
   .serve-go.held { transform: scale(0.96); filter: brightness(1.2); }
@@ -475,11 +475,30 @@ let charging = null; // {shot, startT}
 let chargeTickTimer = null;
 
 const shotEls = document.querySelectorAll('.sb');
+const shotElByName = {};
+shotEls.forEach((el) => { shotElByName[el.dataset.shot] = el; });
+
+// Termina la carica del colpo. emit=true → tira il colpo; emit=false → annulla pulito.
+function endShotCharge(emit) {
+  if (!charging) return;
+  const cur = charging;
+  charging = null;
+  if (chargeTickTimer) { clearInterval(chargeTickTimer); chargeTickTimer = null; }
+  const el = shotElByName[cur.shot];
+  if (el) el.classList.remove('held');
+  if (!emit) return;
+  const charge = Math.min(1.5, (performance.now() - cur.startT) / 1000);
+  const flip = (myTeam === 'B') ? -1 : 1;
+  const angle = { x: joy.x * flip, y: joy.y * flip };
+  const useSuper = serverState && serverState.energy && serverState.energy[myTeam] >= 1.0;
+  socket.emit('shot', { shot: cur.shot, charge, angle, useSuper });
+}
+
 shotEls.forEach((el) => {
   const shot = el.dataset.shot;
-  const onDown = (e) => {
+  el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    if (charging) return;
+    if (charging) endShotCharge(false);
     charging = { shot, startT: performance.now() };
     el.classList.add('held');
     socket.emit('chargeStart', {});
@@ -489,30 +508,12 @@ shotEls.forEach((el) => {
       const t = Math.min(1.5, (performance.now() - charging.startT) / 1000);
       socket.emit('chargeTick', { t });
     }, 100);
-  };
-  const onUp = (e) => {
-    if (!charging || charging.shot !== shot) {
-      el.classList.remove('held');
-      return;
-    }
-    e && e.preventDefault();
-    const elapsed = (performance.now() - charging.startT) / 1000;
-    const charge = Math.min(1.5, elapsed);
-    el.classList.remove('held');
-    const flip = (myTeam === 'B') ? -1 : 1;
-    const angle = { x: joy.x * flip, y: joy.y * flip };
-    const useSuper = serverState && serverState.energy && serverState.energy[myTeam] >= 1.0;
-    socket.emit('shot', { shot, charge, angle, useSuper });
-    charging = null;
-    if (chargeTickTimer) { clearInterval(chargeTickTimer); chargeTickTimer = null; }
-  };
-  el.addEventListener('pointerdown', onDown);
-  el.addEventListener('pointerup', onUp);
-  el.addEventListener('pointercancel', onUp);
-  el.addEventListener('pointerleave', (e) => {
-    // se è ancora premuto fuori, ignora; il release vero arriverà
   });
 });
+// Rilascio ascoltato a livello window: il pointerup vale ovunque, anche fuori dal pulsante
+// o quando #shots viene nascosto (fine punto), evitando cariche appese.
+window.addEventListener('pointerup', () => endShotCharge(true));
+window.addEventListener('pointercancel', () => endShotCharge(true));
 
 document.querySelectorAll('.emote').forEach((el) => {
   el.addEventListener('pointerdown', (e) => {
@@ -539,9 +540,18 @@ document.querySelectorAll('.serve-type').forEach((el) => {
   });
 });
 
+// Riporta il pulsante allo stato di riposo senza servire (per reset difensivo).
+function resetServeCharge() {
+  serveCharging = null;
+  if (serveChargeTimer) { clearInterval(serveChargeTimer); serveChargeTimer = null; }
+  serveGo.classList.remove('held');
+  serveGo.textContent = 'TIENI PER CARICARE';
+  servePowerFill.style.width = '0%';
+}
 function serveDown(e) {
   e.preventDefault();
-  if (serveCharging) return;
+  // se siamo in fase di servizio ma per qualche motivo lo stato era rimasto sporco, ripulisci.
+  if (serveCharging) resetServeCharge();
   serveCharging = { startT: performance.now() };
   serveGo.classList.add('held');
   serveGo.textContent = 'RILASCIA PER SERVIRE';
@@ -558,18 +568,16 @@ function serveUp(e) {
   if (!serveCharging) return;
   e && e.preventDefault();
   const charge = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
-  serveCharging = null;
-  if (serveChargeTimer) { clearInterval(serveChargeTimer); serveChargeTimer = null; }
-  serveGo.classList.remove('held');
-  serveGo.textContent = 'TIENI PER CARICARE';
-  servePowerFill.style.width = '0%';
+  resetServeCharge();
   const flip = (myTeam === 'B') ? -1 : 1;
   const angle = { x: joy.x * flip, y: joy.y * flip };
   socket.emit('shot', { shot: 'serve', charge, angle, serveType });
 }
 serveGo.addEventListener('pointerdown', serveDown);
-serveGo.addEventListener('pointerup', serveUp);
-serveGo.addEventListener('pointercancel', serveUp);
+// Il rilascio è ascoltato a livello window: così un pointerup/cancel fuori dal pulsante
+// (o quando il pannello viene nascosto) non lascia lo stato di servizio bloccato.
+window.addEventListener('pointerup', serveUp);
+window.addEventListener('pointercancel', serveUp);
 
 // =========================================================================
 // Particle system (oggetto pool)
@@ -1415,6 +1423,11 @@ function renderHud() {
   const iAmServing = serverState.phase === 'serving' && serverState.serverId === myId;
   document.getElementById('servePanel').classList.toggle('show', iAmServing);
   shotsEl.classList.toggle('hidden', iAmServing);
+  // Stato pulito tra un punto e l'altro: se non sto servendo, nessuna carica di servizio
+  // deve restare appesa (eviterebbe il prossimo serveDown).
+  if (!iAmServing && serveCharging) resetServeCharge();
+  // analogamente, se non sono in rally non deve restare appesa una carica di colpo.
+  if (serverState.phase !== 'rally' && charging) endShotCharge(false);
 }
 
 // energy meter ai bordi (canvas-side)

@@ -265,14 +265,15 @@ function rotateServer() {
 // ---------------------------------------------------------------------------
 // Servizio
 // ---------------------------------------------------------------------------
-function setupServe() {
+function setupServe(keepFault = false) {
   const sv = state.players[state.serverId];
   if (!sv) {
     rotateServer();
     return;
   }
   state.phase = 'serving';
-  state.serveFault = 0;
+  // Il conteggio falli si azzera solo a inizio punto nuovo, non sulla seconda di servizio.
+  if (!keepFault) state.serveFault = 0;
   state.rallyCount = 0;
 
   // Lato di battuta: punti pari = destra (deuce court), dispari = sinistra (ad court).
@@ -691,7 +692,8 @@ function handleFault() {
       setupServe();
     }
   } else {
-    setupServe();
+    // seconda di servizio: ripristina la palla ma conserva il conteggio falli
+    setupServe(true);
     state.phase = 'serving';
   }
 }
