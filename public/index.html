@@ -711,6 +711,8 @@ function processEvents(events) {
       const p = (serverState.players || []).find(pp => pp.id === ev.id);
       const isMe = ev.id === myId;
       shake(0.4 + (ev.charge || 0) * 1.2 + (ev.super ? 1.5 : 0));
+      // flash al contatto racchetta-palla: sottile sui colpi normali, più deciso su perfetto/carico
+      flash(0.16 + (ev.charge || 0) * 0.2 + (ev.timing === 'perfect' ? 0.18 : 0), 110);
       // particelle scia colore
       const colorByShot = { drive: '#ff6b6b', smash: '#ff3030', lob: '#69db7c', drop: '#fff', slice: '#74c0fc', serve: '#ffd166' };
       const c = colorByShot[ev.shot] || '#fff';
@@ -1061,7 +1063,7 @@ function updateAnim(p, dt) {
   let a = animStates[p.id];
   if (!a) { a = animStates[p.id] = { run: Math.random() * 6, breath: Math.random() * 6, swing: 0, lean: 0, speedN: 0 }; }
   const speed = Math.hypot(p.vx || 0, p.vz || 0);
-  const speedN = Math.min(1, speed / 3.9);
+  const speedN = Math.min(1, speed / 5.0);
   a.speedN += (speedN - a.speedN) * Math.min(1, dt * 10);
   // ciclo gambe avanza proporzionalmente alla velocità reale
   a.run += dt * (2.0 + a.speedN * 10);
@@ -1077,26 +1079,26 @@ function updateAnim(p, dt) {
 }
 
 function drawHitZone(p, sp) {
-  const b = interpState.ball;
-  const dist = Math.hypot(b.x - p.x, b.z - p.z);
-  const REACH = 2.0;
+  // Cerchio sempre visibile attorno al giocatore. Diventa VERDE quando la palla è
+  // colpibile (flag canHit dal server, che tiene conto della finestra di 0.5s).
+  const reach = (serverState && serverState.hitReach) || 4.0;
   const perfectR = Math.max(0.35, 0.7 - (serverState.rallyCount || 0) * 0.02);
-  const reachable = b.y < 3.6;
+  const canHit = !!p.canHit;
+  // pulsazione morbida per attirare l'occhio quando si può colpire
+  const pulse = canHit ? 0.85 + 0.15 * Math.sin(performance.now() / 90) : 1;
   let color, fill, glow = false;
-  if (reachable && dist <= perfectR) { color = 'rgba(6,214,160,0.95)'; fill = 'rgba(6,214,160,0.24)'; glow = true; }
-  else if (reachable && dist <= REACH * 0.85) { color = 'rgba(130,230,140,0.7)'; fill = 'rgba(130,230,140,0.12)'; }
-  else if (reachable && dist <= REACH) { color = 'rgba(255,209,102,0.75)'; fill = 'rgba(255,209,102,0.10)'; }
-  else { color = 'rgba(255,255,255,0.16)'; fill = 'rgba(255,255,255,0.04)'; }
-  const rx = REACH * sp.s, ry = REACH * sp.s * 0.42;
+  if (canHit) { color = `rgba(6,214,160,${0.95 * pulse})`; fill = 'rgba(6,214,160,0.22)'; glow = true; }
+  else { color = 'rgba(255,255,255,0.20)'; fill = 'rgba(255,255,255,0.045)'; }
+  const rx = reach * sp.s, ry = reach * sp.s * 0.42;
   ctx.save();
   ctx.fillStyle = fill;
   ctx.beginPath(); ctx.ellipse(sp.x, sp.y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
-  if (glow) { ctx.shadowColor = '#06d6a0'; ctx.shadowBlur = 16; }
-  ctx.strokeStyle = color; ctx.lineWidth = glow ? 3.5 : 2;
+  if (glow) { ctx.shadowColor = '#06d6a0'; ctx.shadowBlur = 18; }
+  ctx.strokeStyle = color; ctx.lineWidth = glow ? 4 : 2;
   ctx.beginPath(); ctx.ellipse(sp.x, sp.y, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.shadowBlur = 0;
-  // anello "perfetto" interno
-  ctx.strokeStyle = glow ? 'rgba(255,255,255,0.9)' : 'rgba(6,214,160,0.35)';
+  // anello "sweet spot" interno (timing perfetto)
+  ctx.strokeStyle = canHit ? 'rgba(255,255,255,0.9)' : 'rgba(6,214,160,0.30)';
   ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.ellipse(sp.x, sp.y, perfectR * sp.s, perfectR * sp.s * 0.42, 0, 0, Math.PI * 2); ctx.stroke();
   ctx.restore();

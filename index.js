@@ -45,6 +45,17 @@ const COURT_PROFILES = {
   hard:  { restY: 0.66, fricH: 0.88, accelTau: 0.16, decelTau: 0.28, maxSpeed: 3.9, slide: 0.55 },
 };
 
+// ---------------------------------------------------------------------------
+// Tuning giocabilità (facile da regolare in un punto solo)
+// ---------------------------------------------------------------------------
+const SHOT_SPEED_SCALE = 0.5;   // -50% sulla velocità di TUTTI i colpi: palla pesante e controllabile, non un missile
+const AIR_DRAG = 0.024;         // attrito in aria (era 0.012): la palla rallenta naturalmente durante il rally
+const GROUND_FRIC_SCALE = 0.85; // attrito a terra: dopo il rimbalzo trattiene meno velocità orizzontale
+const PLAYER_SPEED_SCALE = 1.3; // +30% sulla velocità massima del giocatore
+const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiungere la velocità massima
+const HIT_REACH = 4.0;          // raggio hit zone raddoppiato (era 2.0): più facile arrivare sulla palla
+const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
+
 const TICK_HZ = 60;
 const NET_HZ = 30;
 const DT = 1 / TICK_HZ;
@@ -294,6 +305,8 @@ function setupServe(keepFault = false) {
   sv.x = standSign * 1.9;
   sv.z = serverFace > 0 ? -(COURT.BASELINE_Z + 0.15) : (COURT.BASELINE_Z + 0.15);
   sv.vx = 0; sv.vz = 0; sv.targetVx = 0; sv.targetVz = 0;
+  // azzera le finestre di colpo a inizio punto (niente cerchio verde "fantasma")
+  for (const pl of Object.values(state.players)) pl.canHitUntil = 0;
 
   // Box di servizio valido (diagonale): x dal lato opposto a dove sta il servitore,
   // z tra la rete e la riga di servizio avversaria.
@@ -346,7 +359,7 @@ function performServe(p, charge, joyAngle, serveType) {
   } else { // flat
     base = 29; spin = 0.08; curve = 0;            // veloce, teso
   }
-  const speed = base * power;
+  const speed = base * power * SHOT_SPEED_SCALE;
 
   // bersaglio dentro il box diagonale
   let targetX = xSign * (COURT.SINGLES_HALF_W * 0.55) + aimX * 1.6;
@@ -404,9 +417,12 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   const dz = ball.z - p.z;
   const distH = Math.hypot(dx, dz);
 
-  // reach
-  const REACH = 2.0;
-  if (distH > REACH) {
+  // reach: colpibile se la palla è nella hit zone ADESSO, oppure se lo è stata
+  // negli ultimi HIT_GRACE_MS (così c'è una finestra di almeno 0.5s, non solo l'istante esatto).
+  const REACH = HIT_REACH;
+  const inZoneNow = distH <= REACH;
+  const inGrace = p.canHitUntil && Date.now() < p.canHitUntil;
+  if (!inZoneNow && !inGrace) {
     // colpo a vuoto
     state.events.push({ type: 'miss', id: p.id });
     p.lastSwing = Date.now();
@@ -499,6 +515,9 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   // limiti
   targetX = Math.max(-COURT.DOUBLES_HALF_W - 1.5, Math.min(COURT.DOUBLES_HALF_W + 1.5, targetX));
 
+  // -50% globale: palla più lenta e controllabile (l'arco si adatta per restare nel campo)
+  speed *= SHOT_SPEED_SCALE;
+
   // calcola velocità per arrivare al target
   const dxT = targetX - p.x;
   const dzT = targetZ - p.z;
@@ -557,7 +576,7 @@ function stepBall(dt) {
   if (!ball || ball.held) return;
 
   // air drag + magnus
-  const dragK = 0.012;
+  const dragK = AIR_DRAG;
   const v = Math.hypot(ball.vx, ball.vy, ball.vz);
   ball.vx -= ball.vx * dragK * v * dt;
   ball.vy -= ball.vy * dragK * v * dt;
@@ -635,8 +654,8 @@ function stepBall(dt) {
     ball.bounces++;
     ball.bouncedSide = sideOfBounce;
     ball.vy = -ball.vy * prof.restY;
-    ball.vx *= prof.fricH;
-    ball.vz *= prof.fricH;
+    ball.vx *= prof.fricH * GROUND_FRIC_SCALE;
+    ball.vz *= prof.fricH * GROUND_FRIC_SCALE;
     // spin influisce: topspin → vz aumenta (kick), vy ridotta; backspin → vz ridotta, salta basso
     ball.vz += ball.spin * 4.0;
     ball.vy *= (1 - Math.max(0, ball.spin) * 0.15);
@@ -729,13 +748,15 @@ function stepPlayers(dt) {
       p.swingT = Math.max(0, (p.swingT || 0) - dt * 4);
       continue;
     }
-    // target velocity da joystick
-    const tvx = p.targetVx * prof.maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
-    const tvz = p.targetVz * prof.maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
+    // target velocity da joystick (+30% di velocità massima del giocatore)
+    const maxSpeed = prof.maxSpeed * PLAYER_SPEED_SCALE;
+    const tvx = p.targetVx * maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
+    const tvz = p.targetVz * maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
 
     // smoothing esponenziale: accelera/decelera in modo morbido e "pesante".
+    // In accelerazione usiamo ACCEL_TAU (~0.15s per la velocità max) per una risposta pronta ma graduale.
     const moving = (Math.abs(tvx) + Math.abs(tvz)) > 0.05;
-    const tau = moving ? prof.accelTau : prof.decelTau;
+    const tau = moving ? ACCEL_TAU : prof.decelTau;
     const k = 1 - Math.exp(-dt / tau);
     p.vx += (tvx - p.vx) * k;
     p.vz += (tvz - p.vz) * k;
@@ -774,6 +795,22 @@ function stepPlayers(dt) {
 
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 
+// Aggiorna, per ogni giocatore, l'istante fino al quale la palla resta "colpibile".
+// Quando la palla entra nella hit zone (raggio HIT_REACH, altezza raggiungibile) la
+// finestra viene estesa di HIT_GRACE_MS: il giocatore può colpire per almeno 0.5s,
+// non solo nell'istante esatto. Il flag canHit alimenta il cerchio verde lato client.
+function updateHitWindows() {
+  const ball = state.ball;
+  if (!ball || !ball.inPlay || ball.held) return;
+  const now = Date.now();
+  for (const p of Object.values(state.players)) {
+    const distH = Math.hypot(ball.x - p.x, ball.z - p.z);
+    if (distH <= HIT_REACH && ball.y < 3.6) {
+      p.canHitUntil = now + HIT_GRACE_MS;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Game loop
 // ---------------------------------------------------------------------------
@@ -792,7 +829,7 @@ function tick() {
     }
   } else if (state.phase === 'rally' || state.phase === 'serving') {
     stepPlayers(dt);
-    if (state.phase === 'rally') stepBall(dt);
+    if (state.phase === 'rally') { stepBall(dt); updateHitWindows(); }
     // se serving, la palla è in mano
     if (state.phase === 'serving' && state.ball) {
       const sv = state.players[state.serverId];
@@ -818,6 +855,7 @@ setInterval(() => {
     phase: state.phase,
     court: state.court,
     mode: gameMode(),
+    hitReach: HIT_REACH,
     serverId: state.serverId,
     serveSide: state.serveSide,
     serveBox: state.serveBox,
@@ -834,6 +872,7 @@ setInterval(() => {
       swingT: round(p.swingT, 1000),
       charging: !!p.charging,
       chargeT: round(p.chargeT, 1000),
+      canHit: !!(p.canHitUntil && Date.now() < p.canHitUntil),
       emote: p.emote && (Date.now() - p.emote.t < 2200) ? p.emote : null,
       lastTiming: p.lastTiming || null,
     })),
@@ -882,6 +921,7 @@ io.on('connection', (socket) => {
       targetVx: 0, targetVz: 0,
       stamina: 1.0, slide: 0,
       swingT: 0, lastSwing: 0,
+      canHitUntil: 0,
       charging: false, chargeT: 0,
       emote: null,
       lastTiming: null,
