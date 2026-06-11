@@ -158,6 +158,8 @@ function gameMode() {
 // ---------------------------------------------------------------------------
 // Punteggio tennis
 // ---------------------------------------------------------------------------
+// Sequenza ufficiale: 0 → 15 → 30 → 40 → Game, con Deuce sul 40-40 e Vantaggio.
+// I contatori interni vanno oltre 3 (4-3 = vantaggio): le etichette le dà pointLabels().
 function addPoint(team) {
   const s = state.score;
   if (s.matchOver) return;
@@ -167,63 +169,49 @@ function addPoint(team) {
     s.tbPoints[team]++;
     const a = s.tbPoints.A, b = s.tbPoints.B;
     if ((a >= 7 || b >= 7) && Math.abs(a - b) >= 2) {
-      // tiebreak vinto
       s.games[team]++;
       finishSet(team);
     } else {
-      // cambio servizio in tiebreak: dopo il primo punto, ogni 2
+      // cambio servizio in tiebreak: dopo il primo punto, poi ogni 2
       const total = a + b;
-      if (total === 1 || (total > 1 && (total - 1) % 2 === 0)) {
-        rotateServer();
-      }
-      // cambio lati ogni 6 punti (visual: ignoriamo)
-      setupServe();
+      if (total === 1 || (total > 1 && (total - 1) % 2 === 0)) rotateServer();
     }
     return;
   }
 
-  if (s.advantage === team) {
-    // vince il game
+  s.points[team]++;
+  const a = s.points[team], b = s.points[other];
+  if (a >= 4 && a - b >= 2) {
+    // game vinto
     s.games[team]++;
     s.points = { A: 0, B: 0 };
-    s.advantage = null; s.deuce = false;
+    s.deuce = false;
+    s.advantage = null;
     onGameWon(team);
     return;
   }
-  if (s.advantage === other) {
-    s.advantage = null; s.deuce = true;
-    state.events.push({ type: 'deuce' });
-    setupServe();
-    return;
-  }
-  if (s.deuce) {
-    s.advantage = team;
-    state.events.push({ type: 'advantage', team });
-    setupServe();
-    return;
-  }
-  s.points[team]++;
-  // 0->15->30->40, oltre 40
-  if (s.points[team] >= 4) {
-    if (s.points[team] - s.points[other] >= 2) {
-      // game vinto
-      s.games[team]++;
-      s.points = { A: 0, B: 0 };
-      onGameWon(team);
-    } else if (s.points.A === 3 && s.points.B === 3) {
-      s.deuce = true;
-      state.events.push({ type: 'deuce' });
-      setupServe();
-    }
-  } else {
-    if (s.points.A === 3 && s.points.B === 3) {
-      s.deuce = true;
-      state.events.push({ type: 'deuce' });
-    }
-    setupServe();
-  }
+  const wasDeuce = s.deuce, wasAdv = s.advantage;
+  s.deuce = a >= 3 && b >= 3 && a === b;
+  s.advantage = (a >= 3 && b >= 3 && a !== b) ? (a > b ? team : other) : null;
+  if (s.deuce && !wasDeuce) state.events.push({ type: 'deuce' });
+  if (s.advantage && s.advantage !== wasAdv) state.events.push({ type: 'advantage', team: s.advantage });
 }
 
+// Etichette del punteggio corrente ('0','15','30','40','AD'), uniche per server e client.
+function pointLabels() {
+  const s = state.score;
+  if (s.tiebreak) return { A: String(s.tbPoints.A), B: String(s.tbPoints.B) };
+  const lab = ['0', '15', '30', '40'];
+  const a = s.points.A, b = s.points.B;
+  if (a >= 3 && b >= 3) {
+    if (a === b) return { A: '40', B: '40' };
+    return a > b ? { A: 'AD', B: '40' } : { A: '40', B: 'AD' };
+  }
+  return { A: lab[Math.min(3, a)], B: lab[Math.min(3, b)] };
+}
+
+// Nota: nessuna chiamata a setupServe qui. Il servizio successivo parte SOLO dal
+// timer di pointEnd nel game loop, così la pausa di fine punto non viene mai saltata.
 function onGameWon(team) {
   state.events.push({ type: 'game', team });
   rotateServer();
@@ -236,9 +224,6 @@ function onGameWon(team) {
     s.tiebreak = true;
     s.tbPoints = { A: 0, B: 0 };
     state.events.push({ type: 'tiebreak' });
-    setupServe();
-  } else {
-    setupServe();
   }
 }
 
@@ -257,7 +242,6 @@ function finishSet(team) {
   s.tiebreak = false;
   s.tbPoints = { A: 0, B: 0 };
   s.sets.push({ A: 0, B: 0 });
-  setupServe();
 }
 
 function rotateServer() {
@@ -302,8 +286,8 @@ function setupServe(keepFault = false) {
   const rightSign = serverFace;
   // Posizione di battuta: lato deuce/ad a ~1.9m dal centro, dietro la propria baseline.
   const standSign = state.serveSide === 'right' ? rightSign : -rightSign;
-  sv.x = standSign * 1.9;
-  sv.z = serverFace > 0 ? -(COURT.BASELINE_Z + 0.15) : (COURT.BASELINE_Z + 0.15);
+  const standX = standSign * 1.9;
+  const standZ = serverFace > 0 ? -(COURT.BASELINE_Z + 0.15) : (COURT.BASELINE_Z + 0.15);
   sv.vx = 0; sv.vz = 0; sv.targetVx = 0; sv.targetVz = 0;
   // azzera le finestre di colpo a inizio punto (niente cerchio verde "fantasma")
   for (const pl of Object.values(state.players)) pl.canHitUntil = 0;
@@ -311,6 +295,9 @@ function setupServe(keepFault = false) {
   // Box di servizio valido (diagonale): x dal lato opposto a dove sta il servitore,
   // z tra la rete e la riga di servizio avversaria.
   state.serveBox = { xSign: -standSign, zSign: serverFace };
+
+  // Tutti scivolano in posizione (niente teletrasporto)
+  assignServePositions(sv, standX, standZ);
 
   // palla in mano del servitore
   state.ball = {
@@ -330,6 +317,38 @@ function setupServe(keepFault = false) {
     lastBouncePos: null,
     marks: state.ball ? state.ball.marks : [],
   };
+}
+
+// A inizio punto tutti i giocatori scivolano (0.3s, vedi stepPlayers) nella posizione
+// corretta: servitore dietro la baseline sul lato deuce/ad, ricevitore in diagonale,
+// i compagni distribuiti (in doppio: uno avanti vicino alla rete, gli altri al fondo).
+function assignServePositions(sv, standX, standZ) {
+  const box = state.serveBox; // zSign = metà campo del ricevitore
+  const slideTo = (p, x, z) => {
+    p.slideFrom = { x: p.x, z: p.z };
+    p.slideTo = { x, z };
+    p.slideK = 0;
+    p.targetVx = 0; p.targetVz = 0;
+  };
+  slideTo(sv, standX, standZ);
+
+  const recvTeam = sv.team === 'A' ? 'B' : 'A';
+  const receivers = activePlayers().filter(p => p.team === recvTeam);
+  const mates = activePlayers().filter(p => p.team === sv.team && p.id !== sv.id);
+
+  // Ricevitore designato: il più vicino alla diagonale del box, pronto a rispondere.
+  const recvX = box.xSign * 2.4;
+  receivers.sort((a, b) => Math.abs(a.x - recvX) - Math.abs(b.x - recvX));
+  receivers.forEach((p, i) => {
+    if (i === 0) slideTo(p, recvX, box.zSign * (COURT.BASELINE_Z - 0.4));
+    else slideTo(p, -box.xSign * (1.6 + (i - 1) * 2.0), box.zSign * (i === 1 ? COURT.SERVICE_Z - 1.2 : COURT.BASELINE_Z - 0.8));
+  });
+  // Compagni del servitore: il primo a rete sul lato opposto, gli altri al fondo.
+  mates.forEach((p, i) => {
+    const x = -Math.sign(standX || 1) * (1.8 + i * 2.0);
+    const z = -box.zSign * (i === 0 ? COURT.SERVICE_Z - 1.2 : COURT.BASELINE_Z - 0.8);
+    slideTo(p, x, z);
+  });
 }
 
 // serveType: 'flat' | 'slice' | 'kick'. charge in 0..1 (già normalizzato dal client).
@@ -449,16 +468,26 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     state.energy[p.team] = 0;
   }
 
+  // lato del colpo: dritto o rovescio in base a da dove arriva la palla
+  // (in world x; il client lo converte nella vista corrente)
+  const sideX = (ball.x - p.x) >= 0 ? 1 : -1;
+
   // direzione verso campo avversario
   const opp = p.team === 'A' ? 1 : -1;
+  // larghezza utile: singolo o doppio a seconda dei giocatori in campo
+  const hwIn = activePlayers().length >= 4 ? COURT.DOUBLES_HALF_W : COURT.SINGLES_HALF_W;
   // target base
-  let targetX = (joyAngle ? joyAngle.x : 0) * COURT.DOUBLES_HALF_W * 0.85;
+  let targetX = (joyAngle ? joyAngle.x : 0) * hwIn * 0.85;
   let targetZ = opp * (COURT.BASELINE_Z * 0.85);
   let height = 0.9; // altezza di atterraggio desiderata
   let speed = 16;
   let vyBoost = 0;
   let spin = 0;
   let shotName = shotType;
+
+  // VOLÉE: vicino alla rete, palla ancora al volo → colpo secco senza caricamento
+  const isVolley = !isSmash && Math.abs(p.z) < 3.2 && ball.bounces === 0 && ball.y > 0.25
+    && (shotType === 'drive' || shotType === 'slice');
 
   // velocità ridotte ~40% e fortemente dipendenti dalla carica:
   // colpo leggero (charge~0) = palla lenta, colpo carico (charge~1) = palla veloce.
@@ -468,6 +497,12 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     targetZ = opp * (COURT.SERVICE_Z + 1.5 + Math.random() * 2);
     height = 0.1;
     spin = 0.8;
+  } else if (isVolley) {
+    shotName = 'volley';
+    speed = 12 + charge * 3; // la carica conta poco: è un tocco di riflesso
+    targetZ = opp * (COURT.SERVICE_Z + 1.0 + Math.random() * 2.5);
+    height = 0.4;
+    spin = -0.15;
   } else if (shotType === 'drive') {
     speed = 14 + charge * 12;
     height = 0.4 + Math.random() * 0.4;
@@ -500,20 +535,25 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     speed *= 1.15;
     targetX += (joyAngle ? joyAngle.x : 0) * 1.2;
   } else if (timing === 'late') {
-    speed *= 0.65;
-    // rischio rete o out
-    if (Math.random() < 0.4) {
+    speed *= 0.7;
+    // rischio rete o out (ammorbidito: i rally devono durare)
+    if (Math.random() < 0.3) {
       // tiro debole verso rete
       targetZ *= 0.25;
       height = 0.05;
     } else {
       // out
-      targetZ *= 1.3;
+      targetZ *= 1.25;
     }
   }
 
-  // limiti
-  targetX = Math.max(-COURT.DOUBLES_HALF_W - 1.5, Math.min(COURT.DOUBLES_HALF_W + 1.5, targetX));
+  // auto-aim assistito: i colpi puliti (perfect/good) restano sempre dentro il campo;
+  // solo i colpi "late" possono finire larghi.
+  if (timing !== 'late') {
+    targetX = clamp(targetX, -hwIn * 0.85, hwIn * 0.85);
+  } else {
+    targetX = clamp(targetX, -hwIn - 1.5, hwIn + 1.5);
+  }
 
   // -50% globale: palla più lenta e controllabile (l'arco si adatta per restare nel campo)
   speed *= SHOT_SPEED_SCALE;
@@ -544,7 +584,7 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   ball.type = shotName;
   ball.isSuper = teamEnergyFull;
   state.rallyCount++;
-  pushHitEffect(p, charge, timing, shotName, teamEnergyFull);
+  pushHitEffect(p, charge, timing, shotName, teamEnergyFull, sideX);
 
   // energy gain
   const gain = timing === 'perfect' ? 0.18 : timing === 'good' ? 0.09 : 0.03;
@@ -553,15 +593,17 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   p.lastTiming = timing;
 }
 
-function pushHitEffect(p, charge, timing, shotName, isSuper) {
+function pushHitEffect(p, charge, timing, shotName, isSuper, sideX) {
   state.events.push({
     type: 'hit',
     id: p.id,
+    team: p.team,
     x: p.x, z: p.z,
     timing: timing || 'good',
     shot: shotName || 'serve',
     super: !!isSuper,
     charge: charge || 0,
+    sideX: sideX || 1,
   });
   if (timing === 'perfect') {
     state.events.push({ type: 'perfect', id: p.id, x: p.x, z: p.z });
@@ -607,9 +649,14 @@ function stepBall(dt) {
       ball.vz = -ball.vz * 0.2;
       ball.y = Math.max(ball.y, 0.05);
       state.events.push({ type: 'net', x: ball.x, y: ball.y, z: 0 });
-      // se non era ancora attraversato → punto avversario
+      // se non era ancora attraversato → errore di chi ha colpito.
+      // Sul SERVIZIO però è un fallo (prima/seconda), non subito un punto.
       if (!ball.crossedNet) {
-        endPointToOpponent(ball.lastHitterTeam, 'rete');
+        if (ball.type === 'serve' && ball.bounces === 0) {
+          handleFault();
+        } else {
+          endPointToOpponent(ball.lastHitterTeam, 'rete');
+        }
         return;
       }
     }
@@ -628,25 +675,40 @@ function stepBall(dt) {
     ball.marks.push({ x: ball.x, z: ball.z, t: Date.now() });
     if (ball.marks.length > 30) ball.marks.shift();
 
-    // verifica IN/OUT
-    const inBounds = ballInBounds(ball);
+    // Attribuzione del punto sul rimbalzo. Regole:
+    // - PRIMO rimbalzo: serve → box diagonale obbligatorio (altrimenti fallo);
+    //   rally → se cade nel campo di chi ha colpito è errore suo, se cade out è
+    //   errore suo, se cade nel campo avversario il gioco continua.
+    // - SECONDO rimbalzo: l'avversario non ha risposto in tempo → punto a chi ha
+    //   colpito per ultimo, OVUNQUE cada il secondo rimbalzo (il primo era già valido).
+    const isFirstBounce = ball.bounces === 0;
     const sideOfBounce = ball.z < 0 ? 'A' : 'B';
 
-    // se primo rimbalzo dopo servizio → deve essere nel box di servizio diagonale
-    if (ball.type === 'serve' && ball.bounces === 0) {
-      const box = state.serveBox || { xSign: 1, zSign: 1 };
-      const ok = isInServiceBox(ball.x, ball.z, box.zSign, box.xSign);
-      if (!ok) {
-        // fault
-        handleFault();
-        return;
-      } else {
+    if (isFirstBounce) {
+      if (ball.type === 'serve') {
+        const box = state.serveBox || { xSign: 1, zSign: 1 };
+        if (!isInServiceBox(ball.x, ball.z, box.zSign, box.xSign)) {
+          handleFault();
+          return;
+        }
         ball.bouncedInService = true;
+      } else if (sideOfBounce === ball.lastHitterTeam) {
+        if (ball.crossedNet) {
+          // la palla è andata di là ed è tornata indietro da sola: l'avversario non l'ha presa
+          awardPoint(ball.lastHitterTeam, 'palla tornata indietro');
+        } else {
+          // rimbalzo nel PROPRIO campo senza superare la rete: punto regalato
+          state.events.push({ type: 'out', x: ball.x, z: ball.z });
+          endPointToOpponent(ball.lastHitterTeam, 'palla nel proprio campo');
+        }
+        return;
+      } else if (!ballInBounds(ball)) {
+        state.events.push({ type: 'out', x: ball.x, z: ball.z });
+        endPointToOpponent(ball.lastHitterTeam, 'out');
+        return;
       }
-    } else if (!inBounds) {
-      // out
-      state.events.push({ type: 'out', x: ball.x, z: ball.z });
-      endPointToOpponent(ball.lastHitterTeam, 'out');
+    } else {
+      awardPoint(ball.lastHitterTeam, 'doppio rimbalzo avversario');
       return;
     }
 
@@ -662,22 +724,18 @@ function stepBall(dt) {
     ball.spin *= 0.6;
 
     state.events.push({ type: 'bounce', x: ball.x, z: ball.z, court: state.court });
-
-    if (ball.bounces >= 2) {
-      // due rimbalzi sullo stesso lato → punto avversario di chi ha rimbalzato (lato di rimbalzo perde)
-      // chi non riesce a rispondere perde: la palla rimbalza nel campo di chi doveva rispondere
-      const losingTeam = sideOfBounce; // squadra del lato dove è caduta
-      const winning = losingTeam === 'A' ? 'B' : 'A';
-      state.events.push({ type: 'point', team: winning, reason: '2 rimbalzi' });
-      awardPoint(winning);
-      return;
-    }
   }
 
-  // palla esce dietro senza rimbalzare entro 1 secondo dal limite — non gestiamo
-  // se va molto fuori senza rimbalzare → out
+  // palla che esce dall'arena senza rimbalzo utile.
+  // Se aveva GIÀ rimbalzato valida nel campo avversario, il punto è di chi ha colpito.
   if (Math.abs(ball.z) > 20 || Math.abs(ball.x) > 14 || ball.y > 25) {
-    endPointToOpponent(ball.lastHitterTeam, 'fuori');
+    if (ball.type === 'serve' && ball.bounces === 0) {
+      handleFault();
+    } else if (ball.bounces >= 1) {
+      awardPoint(ball.lastHitterTeam, 'avversario non risponde');
+    } else {
+      endPointToOpponent(ball.lastHitterTeam, 'fuori al volo');
+    }
   }
 }
 
@@ -706,7 +764,7 @@ function handleFault() {
     if (sv) {
       const opp = sv.team === 'A' ? 'B' : 'A';
       state.events.push({ type: 'doubleFault', team: opp });
-      awardPoint(opp);
+      awardPoint(opp, 'doppio fallo');
     } else {
       setupServe();
     }
@@ -717,22 +775,24 @@ function handleFault() {
   }
 }
 
+// Chi sbaglia (out, rete, palla nel proprio campo) REGALA il punto all'avversario.
 function endPointToOpponent(hitterTeam, reason) {
   if (!hitterTeam) return;
   const winner = hitterTeam === 'A' ? 'B' : 'A';
-  state.events.push({ type: 'point', team: winner, reason });
-  awardPoint(winner);
+  awardPoint(winner, reason);
 }
 
-function awardPoint(team) {
-  // aggiungi al punteggio + reset rally
+// Unico punto di ingresso per assegnare un punto: aggiorna fase, energia, punteggio
+// e logga SEMPRE in console chi ha vinto e perché, così ogni assegnazione è verificabile.
+function awardPoint(team, reason) {
   state.phase = 'pointEnd';
   state.pointTimer = 1.6;
-  state.events.push({ type: 'pointWon', team });
-  // energia
+  state.events.push({ type: 'pointWon', team, reason: reason || '' });
   state.energy[team] = Math.min(1, state.energy[team] + 0.18);
-  // applica al punteggio
   addPoint(team);
+  const l = pointLabels();
+  const s = state.score;
+  console.log(`[PUNTO] → Team ${team} (${reason || 'n/d'}) | game: A ${l.A} - B ${l.B}${s.deuce ? ' (deuce)' : ''}${s.advantage ? ` (adv ${s.advantage})` : ''} | games: ${s.games.A}-${s.games.B} | set: ${s.setsWon.A}-${s.setsWon.B}${s.matchOver ? ` | MATCH ${s.winner}` : ''}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -741,11 +801,24 @@ function awardPoint(team) {
 function stepPlayers(dt) {
   const prof = COURT_PROFILES[state.court];
   for (const p of Object.values(state.players)) {
+    // Scivolata di posizionamento a inizio punto: 0.3s con smoothstep,
+    // input ignorato finché non è in posizione.
+    if (p.slideTo) {
+      p.slideK = Math.min(1, (p.slideK || 0) + dt / 0.3);
+      const k = p.slideK * p.slideK * (3 - 2 * p.slideK);
+      p.x = p.slideFrom.x + (p.slideTo.x - p.slideFrom.x) * k;
+      p.z = p.slideFrom.z + (p.slideTo.z - p.slideFrom.z) * k;
+      p.vx = 0; p.vz = 0;
+      if (p.slideK >= 1) p.slideTo = null;
+      p.slide = Math.max(0, p.slide - dt * 2);
+      p.swingT = Math.max(0, (p.swingT || 0) - dt * 2.5);
+      continue;
+    }
     // Il servitore resta fermo durante la fase di servizio: non si muove da solo.
     if (state.phase === 'serving' && p.id === state.serverId) {
       p.vx = 0; p.vz = 0; p.targetVx = 0; p.targetVz = 0;
       p.slide = Math.max(0, p.slide - dt * 2);
-      p.swingT = Math.max(0, (p.swingT || 0) - dt * 4);
+      p.swingT = Math.max(0, (p.swingT || 0) - dt * 2.5);
       continue;
     }
     // target velocity da joystick (+30% di velocità massima del giocatore)
@@ -772,11 +845,12 @@ function stepPlayers(dt) {
     p.x += p.vx * dt;
     p.z += p.vz * dt;
 
-    // limiti campo (margine)
+    // limiti campo: ognuno resta nella PROPRIA metà, mai oltre la rete (z=0)
     const limX = COURT.DOUBLES_HALF_W + 2.5;
     const limZ = COURT.BASELINE_Z + 3.0;
     p.x = clamp(p.x, -limX, limX);
-    p.z = clamp(p.z, -limZ, limZ);
+    if (p.team === 'A') p.z = clamp(p.z, -limZ, -0.45);
+    else p.z = clamp(p.z, 0.45, limZ);
 
     // stamina
     const running = Math.hypot(p.vx, p.vz) > 4.0;
@@ -788,8 +862,8 @@ function stepPlayers(dt) {
     if (!running && !charging) p.stamina += dt * (inBack ? 0.18 : 0.08);
     p.stamina = clamp(p.stamina, 0, 1);
 
-    // anim swing decay
-    p.swingT = Math.max(0, (p.swingT || 0) - dt * 4);
+    // anim swing decay (più lento = follow-through leggibile, ~0.4s)
+    p.swingT = Math.max(0, (p.swingT || 0) - dt * 2.5);
   }
 }
 
@@ -835,8 +909,11 @@ function tick() {
       const sv = state.players[state.serverId];
       if (sv) {
         state.ball.x = sv.x;
-        state.ball.y = 0.9;
         state.ball.z = sv.z;
+        // lancio della palla: durante la carica sale verso il punto d'impatto,
+        // così il servizio si legge come "toss + colpo sopra la testa"
+        const toss = sv.charging ? Math.min(1, (sv.chargeT || 0) / 1.5) : 0;
+        state.ball.y = 0.9 + toss * 1.9;
       }
     }
   } else if (state.phase === 'lobby') {
@@ -862,7 +939,7 @@ setInterval(() => {
     serveFault: state.serveFault,
     rallyCount: state.rallyCount,
     energy: state.energy,
-    score: state.score,
+    score: { ...state.score, labels: pointLabels() },
     players: Object.values(state.players).map(p => ({
       id: p.id, name: p.name, team: p.team, color: p.color,
       x: round(p.x), z: round(p.z),
@@ -880,6 +957,7 @@ setInterval(() => {
       x: round(state.ball.x), y: round(state.ball.y), z: round(state.ball.z),
       vx: round(state.ball.vx), vy: round(state.ball.vy), vz: round(state.ball.vz),
       spin: round(state.ball.spin, 100),
+      curve: round(state.ball.curve || 0, 100),
       type: state.ball.type, isSuper: !!state.ball.isSuper,
       held: !!state.ball.held,
       lastHitter: state.ball.lastHitter,
@@ -1006,3 +1084,16 @@ io.on('connection', (socket) => {
     io.emit('lobby', { count: activePlayers().length, court: state.court, mode: gameMode() });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Hook di test: espone gli interni SOLO quando TENNIS_TEST è settato
+// (usato da test/score.test.js per verificare la logica del punteggio)
+// ---------------------------------------------------------------------------
+if (process.env.TENNIS_TEST) {
+  module.exports = {
+    state, COURT,
+    addPoint, awardPoint, pointLabels,
+    stepBall, stepPlayers, setupServe, handleFault,
+    createScoreState,
+  };
+}

@@ -70,13 +70,17 @@
     font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px;
     box-shadow: 0 6px 18px rgba(0,0,0,0.4);
   }
+  .scoreboard { transform-origin: top center; }
   .scoreboard .row { display: contents; }
-  .scoreboard .tn { font-weight: 800; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px; }
+  .scoreboard .tn { font-weight: 800; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
   .scoreboard .tn.A { color: #74c0fc; }
   .scoreboard .tn.B { color: #ff8787; }
   .scoreboard .cell { text-align: center; opacity: 0.85; }
   .scoreboard .cur { background: rgba(255, 209, 102, 0.18); border-radius: 6px; color: #ffd166; }
+  .scoreboard .sets { font-weight: 800; color: #fff; background: rgba(255,255,255,0.08); border-radius: 6px; }
+  .scoreboard .pts { min-width: 34px; }
   .scoreboard .head { font-size: 10px; opacity: 0.55; letter-spacing: 0.12em; text-align: center; padding-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .serve-dot { color: #ffd166; margin-right: 4px; font-size: 10px; vertical-align: middle; animation: blink 1.4s infinite; }
   .meta { display: flex; gap: 12px; font-size: 11px; opacity: 0.6; letter-spacing: 0.08em; text-transform: uppercase; }
 
   /* ============ CONTROLS ============ */
@@ -710,12 +714,22 @@ function processEvents(events) {
     if (ev.type === 'hit') {
       const p = (serverState.players || []).find(pp => pp.id === ev.id);
       const isMe = ev.id === myId;
+      // memorizza tipo e lato del colpo per l'animazione dello swing
+      const an = getAnim(ev.id);
+      an.shot = ev.shot || 'drive';
+      an.sideX = ev.sideX || 1;
+      // split-step: chi deve rispondere fa il saltello di preparazione
+      const hitterTeam = ev.team || (p && p.team);
+      if (hitterTeam) {
+        for (const q of serverState.players || []) {
+          if (q.team !== hitterTeam) getAnim(q.id).splitT = 0.26;
+        }
+      }
       shake(0.4 + (ev.charge || 0) * 1.2 + (ev.super ? 1.5 : 0));
       // flash al contatto racchetta-palla: sottile sui colpi normali, più deciso su perfetto/carico
       flash(0.16 + (ev.charge || 0) * 0.2 + (ev.timing === 'perfect' ? 0.18 : 0), 110);
       // particelle scia colore
-      const colorByShot = { drive: '#ff6b6b', smash: '#ff3030', lob: '#69db7c', drop: '#fff', slice: '#74c0fc', serve: '#ffd166' };
-      const c = colorByShot[ev.shot] || '#fff';
+      const c = SHOT_COLORS[ev.shot] || '#fff';
       if (p) {
         for (let i = 0; i < 6; i++) {
           pSpawn({ x: ev.x, y: 1.2, z: ev.z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3, life: 0.4, color: c, size: 3 });
@@ -760,6 +774,14 @@ function processEvents(events) {
     } else if (ev.type === 'pointWon') {
       flash(0.5, 250);
       shake(1.5, 0.4);
+      // esultanza per chi vince il punto, delusione per chi lo perde
+      for (const q of serverState.players || []) {
+        const an = getAnim(q.id);
+        if (q.team === ev.team) { an.celeT = 1.4; an.dejT = 0; }
+        else { an.dejT = 1.4; an.celeT = 0; }
+      }
+    } else if (ev.type === 'miss') {
+      if (ev.id === myId) toast('A VUOTO!', 'orange', 500);
     } else if (ev.type === 'point') {
       // mostrato già da pointWon
     } else if (ev.type === 'game') {
@@ -1059,9 +1081,21 @@ function drawNet() {
 // Stato animazione per-giocatore (interpolato lato client per fluidità)
 // =========================================================================
 const animStates = {};
+function getAnim(id) {
+  let a = animStates[id];
+  if (!a) {
+    a = animStates[id] = {
+      run: Math.random() * 6, breath: Math.random() * 6, swing: 0, lean: 0, speedN: 0,
+      splitT: 0,            // split-step prima di ricevere
+      celeT: 0, dejT: 0,    // esultanza / delusione a fine punto
+      shot: 'drive',        // ultimo tipo di colpo (per la posa dello swing)
+      sideX: 1,             // lato world-x della palla all'impatto (dritto/rovescio)
+    };
+  }
+  return a;
+}
 function updateAnim(p, dt) {
-  let a = animStates[p.id];
-  if (!a) { a = animStates[p.id] = { run: Math.random() * 6, breath: Math.random() * 6, swing: 0, lean: 0, speedN: 0 }; }
+  const a = getAnim(p.id);
   const speed = Math.hypot(p.vx || 0, p.vz || 0);
   const speedN = Math.min(1, speed / 5.0);
   a.speedN += (speedN - a.speedN) * Math.min(1, dt * 10);
@@ -1075,19 +1109,55 @@ function updateAnim(p, dt) {
   const b = interpState && interpState.ball;
   if (b) tl = Math.max(-1, Math.min(1, (b.x - p.x) / 2.5));
   a.lean += (tl - a.lean) * Math.min(1, dt * 7);
+  // decadimento timer pose
+  a.splitT = Math.max(0, a.splitT - dt);
+  a.celeT = Math.max(0, a.celeT - dt);
+  a.dejT = Math.max(0, a.dejT - dt);
   return a;
 }
 
+// Angolo schermo del braccio-racchetta per tipo di colpo e fase q (0=caricamento → 1=fine).
+// 3 fasi fluide: caricamento → contatto (accelerando) → follow-through (decelerando).
+// I keyframe sono per il colpo a destra dello schermo; il rovescio è specchiato.
+function shotArmAngle(shot, q, sideScreen) {
+  const PI = Math.PI;
+  const K = {
+    drive:  [0.55 * PI, -0.06 * PI, -0.85 * PI],  // dietro-basso → davanti → sopra la spalla opposta
+    volley: [-0.15 * PI, -0.02 * PI, 0.12 * PI],  // punch secco, quasi senza corsa
+    slice:  [-0.55 * PI, 0.02 * PI, 0.40 * PI],   // alto → basso, taglia la palla
+    lob:    [0.60 * PI, 0.05 * PI, -0.62 * PI],   // basso → alto, cucchiaio
+    drop:   [-0.12 * PI, 0.04 * PI, 0.20 * PI],   // tocco morbido
+    smash:  [-0.80 * PI, -0.42 * PI, -0.04 * PI], // sopra la testa → giù
+    serve:  [-0.80 * PI, -0.45 * PI, -0.02 * PI], // come lo smash, dal toss
+  };
+  const k = K[shot] || K.drive;
+  let ang;
+  if (q < 0.30) {
+    const t = q / 0.30;
+    ang = k[0] + (k[1] - k[0]) * (t * t);
+  } else {
+    const t = (q - 0.30) / 0.70;
+    ang = k[1] + (k[2] - k[1]) * (1 - (1 - t) * (1 - t));
+  }
+  return sideScreen >= 0 ? ang : Math.PI - ang;
+}
+
 function drawHitZone(p, sp) {
-  // Cerchio sempre visibile attorno al giocatore. Diventa VERDE quando la palla è
-  // colpibile (flag canHit dal server, che tiene conto della finestra di 0.5s).
+  // Cerchio sempre visibile attorno al giocatore, tre stati chiarissimi:
+  //   GRIGIO  = palla lontana
+  //   GIALLO  = palla in avvicinamento, preparati
+  //   VERDE   = colpibile ADESSO (flag canHit dal server, finestra di 0.5s inclusa)
   const reach = (serverState && serverState.hitReach) || 4.0;
   const perfectR = Math.max(0.35, 0.7 - (serverState.rallyCount || 0) * 0.02);
   const canHit = !!p.canHit;
+  const b = interpState && interpState.ball;
+  const dist = b ? Math.hypot(b.x - p.x, b.z - p.z) : 999;
+  const near = !canHit && b && dist < reach * 1.9 && b.y < 6;
   // pulsazione morbida per attirare l'occhio quando si può colpire
   const pulse = canHit ? 0.85 + 0.15 * Math.sin(performance.now() / 90) : 1;
   let color, fill, glow = false;
   if (canHit) { color = `rgba(6,214,160,${0.95 * pulse})`; fill = 'rgba(6,214,160,0.22)'; glow = true; }
+  else if (near) { color = 'rgba(255,209,102,0.70)'; fill = 'rgba(255,209,102,0.10)'; }
   else { color = 'rgba(255,255,255,0.20)'; fill = 'rgba(255,255,255,0.045)'; }
   const rx = reach * sp.s, ry = reach * sp.s * 0.42;
   ctx.save();
@@ -1104,6 +1174,55 @@ function drawHitZone(p, sp) {
   ctx.restore();
 }
 
+// Colori per tipo di colpo (scie, traiettoria, particelle)
+const SHOT_COLORS = { drive: '#ff6b6b', smash: '#ff3030', lob: '#69db7c', drop: '#ffffff', slice: '#74c0fc', serve: '#ffd166', volley: '#ffe066' };
+
+// Traiettoria prevista della palla: puntini lungo il volo + anello sul punto di
+// atterraggio. Stessa fisica del server (drag 0.024, gravità, magnus, curva slice).
+function drawPredictedPath(b) {
+  if (!b || b.held) return;
+  if (Math.hypot(b.vx || 0, b.vy || 0, b.vz || 0) < 1.5) return;
+  let x = b.x, y = b.y, z = b.z, vx = b.vx, vy = b.vy, vz = b.vz;
+  let spin = b.spin || 0, curve = b.curve || 0;
+  const dt = 1 / 60;
+  const pts = [];
+  let land = null;
+  for (let i = 0; i < 160; i++) {
+    const v = Math.hypot(vx, vy, vz);
+    vx -= vx * 0.024 * v * dt; vy -= vy * 0.024 * v * dt; vz -= vz * 0.024 * v * dt;
+    vy -= 9.8 * dt;
+    vy -= spin * 8.0 * dt;
+    if (curve) { vx += curve * 5.0 * dt; curve *= (1 - dt * 0.5); }
+    const zPrev = z;
+    x += vx * dt; y += vy * dt; z += vz * dt;
+    // si ferma sulla rete: oltre non ha senso prevedere
+    if (zPrev * z < 0 && y < COURT.NET_H_CENTER && Math.abs(x) < COURT.DOUBLES_HALF_W + 0.9) break;
+    if (y <= 0.034) { land = { x, z }; break; }
+    if (i % 6 === 5) pts.push({ x, y, z });
+  }
+  const col = SHOT_COLORS[b.type] || '#ffffff';
+  ctx.save();
+  ctx.fillStyle = col;
+  for (let i = 0; i < pts.length; i++) {
+    const q = pts[i];
+    const s = project(q.x, q.y, q.z);
+    ctx.globalAlpha = 0.14 + 0.30 * (i / Math.max(1, pts.length - 1));
+    ctx.beginPath(); ctx.arc(s.x, s.y, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  if (land) {
+    const g = project(land.x, 0, land.z);
+    const k = (0.8 + 0.2 * Math.sin(performance.now() / 150)) * (g.s / view.cam.nearScale);
+    ctx.globalAlpha = 0.8;
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(g.x, g.y, 15 * k, 6.5 * k, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.25;
+    ctx.beginPath(); ctx.ellipse(g.x, g.y, 7 * k, 3 * k, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+}
+
 // Player: figura articolata con animazione interpolata
 function drawPlayer(p, dt) {
   const a = updateAnim(p, dt);
@@ -1115,10 +1234,22 @@ function drawPlayer(p, dt) {
   // respiro idle + leggero abbassamento in corsa + lean verso palla
   const idle = a.speedN < 0.12;
   const breath = idle ? Math.sin(a.breath) * 0.025 : 0;
-  const crouch = a.speedN * 0.06;
   const lean = a.lean;
   const leanX = lean * 0.18;
   const ph = a.run;
+
+  // --- modificatori di posa ---
+  const isServing = serverState && serverState.phase === 'serving' && serverState.serverId === p.id;
+  const chargeN = p.charging ? Math.min(1, (p.chargeT || 0) / 1.5) : 0;
+  // split-step: saltello di preparazione quando l'avversario colpisce
+  let hopY = 0;
+  if (a.splitT > 0) hopY = Math.sin(Math.PI * (1 - a.splitT / 0.26)) * 0.10;
+  // esultanza: saltelli ritmici
+  if (a.celeT > 0) hopY = Math.abs(Math.sin((1.4 - a.celeT) * 9)) * 0.16;
+  // delusione: spalle e testa che si abbassano
+  const slump = a.dejT > 0 ? Math.min(1, (1.4 - a.dejT) * 4) * 0.16 : 0;
+  // caricamento colpo: ginocchia piegate, pronto a esplodere
+  const crouch = a.speedN * 0.06 + chargeN * 0.10 + slump;
 
   const sp = project(p.x, 0, p.z);
   const sc = sp.s / view.cam.nearScale;
@@ -1136,19 +1267,22 @@ function drawPlayer(p, dt) {
     drawHitZone(p, sp);
   }
 
-  // articolazioni
-  const hip = project(p.x + leanX * 0.4, legs - crouch + breath, p.z);
-  const sh = project(p.x + leanX, torso + legs - 0.25 - crouch + breath, p.z);
-  const hd = project(p.x + leanX * 1.1, head + torso + legs - crouch + breath, p.z);
+  // articolazioni (hopY alza tutta la figura nel saltello)
+  const hip = project(p.x + leanX * 0.4, legs - crouch + breath + hopY, p.z);
+  const sh = project(p.x + leanX, torso + legs - 0.25 - crouch + breath + hopY, p.z);
+  const hd = project(p.x + leanX * 1.1, head + torso + legs - crouch + breath + hopY, p.z);
 
-  // GAMBE: ampiezza/frequenza passo proporzionali alla velocità
+  // GAMBE: ampiezza/frequenza passo proporzionali alla velocità; nello
+  // split-step i piedi si allargano e si staccano da terra insieme
   ctx.strokeStyle = '#1a1a1a';
   ctx.lineWidth = 8 * sc; ctx.lineCap = 'round';
-  const stride = 0.10 + a.speedN * 0.34;
+  const splitSpread = a.splitT > 0 ? 0.10 : 0;
+  const stride = 0.10 + a.speedN * 0.34 + splitSpread;
   const lift = a.speedN * 0.12;
-  const legAx = Math.sin(ph), legBx = Math.sin(ph + Math.PI);
-  const fL = project(p.x - 0.22 + legAx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph))), p.z + legAx * stride * 0.4);
-  const fR = project(p.x + 0.22 + legBx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph + Math.PI))), p.z + legBx * stride * 0.4);
+  const legAx = a.splitT > 0 ? -0.5 : Math.sin(ph);
+  const legBx = a.splitT > 0 ? 0.5 : Math.sin(ph + Math.PI);
+  const fL = project(p.x - 0.22 + legAx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph))) + hopY * 0.8, p.z + legAx * stride * 0.4);
+  const fR = project(p.x + 0.22 + legBx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph + Math.PI))) + hopY * 0.8, p.z + legBx * stride * 0.4);
   ctx.beginPath(); ctx.moveTo(hip.x - 6 * sc, hip.y); ctx.lineTo(fL.x, fL.y); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(hip.x + 6 * sc, hip.y); ctx.lineTo(fR.x, fR.y); ctx.stroke();
   ctx.fillStyle = '#fff';
@@ -1171,21 +1305,64 @@ function drawPlayer(p, dt) {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(p.team, (hip.x + sh.x) / 2, (hip.y + sh.y) / 2);
 
-  // BRACCIA + racchetta: swing in 3 fasi smussate (caricamento → contatto → follow-through)
+  // BRACCIA + racchetta — pose distinte per colpo, in 3 fasi:
+  // caricamento (mentre si tiene premuto) → contatto → follow-through.
+  // Dritto/rovescio scelti dal lato da cui arriva la palla rispetto al giocatore.
   const env = Math.max(0, Math.min(1, a.swing));
-  // braccio idle/corsa coordinato con le gambe; durante lo swing sweep guidato da env
+  const q = 1 - env; // 0 = inizio swing, 1 = fine follow-through
   const idleArm = Math.sin(ph + Math.PI) * 0.35 * a.speedN - 0.3;
-  const armSwingAng = env > 0.01 ? (-Math.PI * 0.9 + env * Math.PI * 1.5 + lean * 0.4) : idleArm;
-  const racX = sh.x + Math.cos(armSwingAng) * 36 * sc;
-  const racY = sh.y + Math.sin(armSwingAng) * 36 * sc;
+
+  // lato schermo del colpo: world-x convertito nella vista corrente (team B vede flippato)
+  const viewFlip = (view.myTeam === 'B') ? -1 : 1;
+  let sideScreen = (a.sideX || 1) * viewFlip;
+  // mentre carico (o a riposo) il lato si aggiorna live dalla posizione della palla
+  const ballNow = interpState && interpState.ball;
+  if ((p.charging || env <= 0.01) && ballNow) {
+    const bsx = project(ballNow.x, 0, ballNow.z).x - sp.x;
+    if (Math.abs(bsx) > 2) sideScreen = bsx >= 0 ? 1 : -1;
+  }
+  // per il MIO giocatore il caricamento conosce già il colpo scelto (pulsante premuto)
+  const shotForPose = (p.id === myId && charging) ? charging.shot : (a.shot || 'drive');
+
+  let armAng, freeAng;
+  if (a.celeT > 0) {
+    // ESULTANZA: racchetta al cielo, braccio libero pure
+    armAng = -Math.PI * 0.55 + Math.sin(performance.now() / 90) * 0.12;
+    freeAng = Math.PI - armAng;
+  } else if (a.dejT > 0) {
+    // DELUSIONE: braccia abbandonate lungo i fianchi
+    armAng = Math.PI * 0.42;
+    freeAng = Math.PI * 0.58;
+  } else if (isServing && p.charging) {
+    // SERVIZIO in caricamento: racchetta dietro la testa, braccio libero alto (toss)
+    armAng = -Math.PI * 0.78 + chargeN * 0.10;
+    freeAng = -Math.PI * 0.5 - 0.12;
+  } else if (p.charging && chargeN > 0.02) {
+    // CARICAMENTO colpo: il braccio va in posizione di windup del colpo scelto
+    const wind = shotArmAngle(shotForPose, 0, sideScreen);
+    armAng = idleArm + (wind - idleArm) * Math.min(1, chargeN * 2.2);
+    freeAng = -armAng * 0.3 - 1.1;
+  } else if (env > 0.01) {
+    // SWING: sweep del colpo memorizzato (contatto → follow-through)
+    armAng = shotArmAngle(a.shot || 'drive', q, sideScreen) + lean * 0.12;
+    freeAng = -armAng * 0.35 - 1.0;
+  } else {
+    // corsa/idle: braccio coordinato con le gambe
+    armAng = idleArm;
+    freeAng = -armAng * 0.4 - 1.2;
+  }
+
+  // attacco del braccio: nel rovescio attraversa il corpo (parte più dal centro)
+  const armRootX = sh.x + (sideScreen >= 0 ? 14 : 6) * sc;
+  const racX = sh.x + Math.cos(armAng) * 36 * sc;
+  const racY = sh.y + Math.sin(armAng) * 36 * sc;
   ctx.strokeStyle = '#e0c9a0';
   ctx.lineWidth = 6 * sc;
-  ctx.beginPath(); ctx.moveTo(sh.x + 14 * sc, sh.y); ctx.lineTo(racX, racY); ctx.stroke();
-  drawRacket(racX, racY, armSwingAng + Math.PI / 2, sc);
+  ctx.beginPath(); ctx.moveTo(armRootX, sh.y); ctx.lineTo(racX, racY); ctx.stroke();
+  drawRacket(racX, racY, armAng + Math.PI / 2, sc);
   // braccio libero
-  const armL = -armSwingAng * 0.4 - 1.2;
   ctx.strokeStyle = '#e0c9a0';
-  ctx.beginPath(); ctx.moveTo(sh.x - 14 * sc, sh.y); ctx.lineTo(sh.x - 14 * sc + Math.cos(armL) * 30 * sc, sh.y + Math.sin(armL) * 30 * sc); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(sh.x - 14 * sc, sh.y); ctx.lineTo(sh.x - 14 * sc + Math.cos(freeAng) * 30 * sc, sh.y + Math.sin(freeAng) * 30 * sc); ctx.stroke();
 
   // TESTA (orientata verso la palla)
   ctx.fillStyle = '#e8b27a';
@@ -1312,8 +1489,8 @@ function drawBall(b) {
   ctx.fill();
   ctx.restore();
 
-  // scia
-  const trailC = { drive: '#ff6b6b', smash: '#ff3030', lob: '#69db7c', drop: '#ffffff', slice: '#74c0fc', serve: '#ffd166' }[b.type] || '#fff';
+  // scia: colore diverso per tipo di colpo
+  const trailC = SHOT_COLORS[b.type] || '#fff';
   if (b.isSuper) drawRainbowTrail(); else drawTrail(trailC);
 
   // palla
@@ -1369,43 +1546,70 @@ function drawRainbowTrail() {
 // HUD scoreboard (DOM)
 // =========================================================================
 function pointLabel(n) { return ['0', '15', '30', '40'][Math.min(3, n)]; }
+// Nome squadra: primo giocatore (+N se compagni), stile tabellone torneo
+function teamLabel(team) {
+  const list = (serverState.players || []).filter(pp => pp.team === team);
+  if (!list.length) return team;
+  const base = (list[0].name || team).slice(0, 9).toUpperCase();
+  return list.length > 1 ? `${base} +${list.length - 1}` : base;
+}
+let scorePopT = -1e9, lastScoreKey = '';
 function renderHud() {
   const hud = document.getElementById('hud');
   if (!serverState) { hud.innerHTML = ''; return; }
   const s = serverState.score;
+  // etichette dal server (fonte unica della verità); fallback locale se assenti
   let aLabel, bLabel;
-  if (s.tiebreak) {
+  if (s.labels) {
+    aLabel = s.labels.A; bLabel = s.labels.B;
+  } else if (s.tiebreak) {
     aLabel = s.tbPoints.A; bLabel = s.tbPoints.B;
-  } else if (s.deuce) {
+  } else if (s.deuce || s.advantage) {
     if (s.advantage === 'A') { aLabel = 'AD'; bLabel = '40'; }
     else if (s.advantage === 'B') { aLabel = '40'; bLabel = 'AD'; }
     else { aLabel = '40'; bLabel = '40'; }
   } else {
     aLabel = pointLabel(s.points.A); bLabel = pointLabel(s.points.B);
   }
-  // colonne: TEAM | SET1 | SET2 | SET3 | PUNTI
-  const sets = s.sets || [{A:0,B:0}];
-  let setHeaders = '<div class="head">·</div>';
-  let aRow = `<div class="tn A">A</div>`;
-  let bRow = `<div class="tn B">B</div>`;
+  // animazione del punteggio quando cambia: pop di scala che decade
+  const key = `${aLabel}|${bLabel}|${s.games.A}|${s.games.B}|${(s.sets || []).length}`;
+  if (key !== lastScoreKey) {
+    if (lastScoreKey) scorePopT = performance.now();
+    lastScoreKey = key;
+  }
+  const pop = Math.max(0, 1 - (performance.now() - scorePopT) / 450);
+  const popScale = 1 + pop * pop * 0.16;
+
+  // pallino di chi è al servizio
+  const sv = (serverState.players || []).find(pp => pp.id === serverState.serverId);
+  const servingTeam = sv ? sv.team : null;
+  const dotA = servingTeam === 'A' ? '<span class="serve-dot">●</span>' : '';
+  const dotB = servingTeam === 'B' ? '<span class="serve-dot">●</span>' : '';
+
+  // colonne: SQUADRA | SET vinti | game per set | PUNTI
+  const sets = s.sets || [{ A: 0, B: 0 }];
+  let setHeaders = '<div class="head">·</div><div class="head">SET</div>';
+  let aRow = `<div class="tn A">${dotA}${teamLabel('A')}</div><div class="cell sets">${(s.setsWon && s.setsWon.A) || 0}</div>`;
+  let bRow = `<div class="tn B">${dotB}${teamLabel('B')}</div><div class="cell sets">${(s.setsWon && s.setsWon.B) || 0}</div>`;
   for (let i = 0; i < Math.max(1, sets.length); i++) {
     const isCur = i === sets.length - 1;
-    setHeaders += `<div class="head">S${i+1}</div>`;
+    setHeaders += `<div class="head">S${i + 1}</div>`;
     const sa = sets[i] ? (isCur ? s.games.A : sets[i].A) : 0;
     const sb = sets[i] ? (isCur ? s.games.B : sets[i].B) : 0;
     aRow += `<div class="cell ${isCur ? 'cur' : ''}">${sa}</div>`;
     bRow += `<div class="cell ${isCur ? 'cur' : ''}">${sb}</div>`;
   }
-  setHeaders += `<div class="head">PT</div>`;
-  aRow += `<div class="cell cur"><b>${aLabel}</b></div>`;
-  bRow += `<div class="cell cur"><b>${bLabel}</b></div>`;
+  setHeaders += `<div class="head">${s.tiebreak ? 'TB' : 'PT'}</div>`;
+  aRow += `<div class="cell cur pts"><b>${aLabel}</b></div>`;
+  bRow += `<div class="cell cur pts"><b>${bLabel}</b></div>`;
 
   const mode = serverState.mode || '1v1';
   const courtName = (COURT_THEMES[serverState.court] || {}).name || '';
   const kmh = s.lastServeKmh ? `· ${s.lastServeKmh} km/h` : '';
+  const nCols = 2 + Math.max(1, sets.length);
 
   hud.innerHTML = `
-    <div class="scoreboard">
+    <div class="scoreboard" style="grid-template-columns: auto repeat(${nCols}, minmax(28px, auto)); transform: scale(${popScale});">
       <div class="row">${setHeaders}</div>
       <div class="row">${aRow}</div>
       <div class="row">${bRow}</div>
@@ -1522,6 +1726,8 @@ function frame(now) {
 
     // palla
     if (s.ball) {
+      // traiettoria prevista con puntini (solo durante il rally)
+      if (s.phase === 'rally') drawPredictedPath(s.ball);
       // trail update
       if (now - trailLastT > 16) {
         trail.push({ x: s.ball.x, y: s.ball.y, z: s.ball.z });
