@@ -48,12 +48,14 @@ const COURT_PROFILES = {
 // ---------------------------------------------------------------------------
 // Tuning giocabilità (facile da regolare in un punto solo)
 // ---------------------------------------------------------------------------
-const SHOT_SPEED_SCALE = 0.6;   // velocità colpi ridotta vs originale: palla pesante e leggibile ma viva (feel PS)
+const SHOT_SPEED_SCALE = 1.0;   // colpi normali a piena velocità (veloci e incisivi)
+const SUPER_SPEED_MULT = 2.0;   // la super va il doppio
+const SPEED_CAP = 42;           // tetto fisico: oltre, la palla non sta nel campo
 const AIR_DRAG = 0.024;         // attrito in aria (era 0.012): la palla rallenta naturalmente durante il rally
 const GROUND_FRIC_SCALE = 0.85; // attrito a terra: dopo il rimbalzo trattiene meno velocità orizzontale
 const PLAYER_SPEED_SCALE = 1.4; // velocità massima del giocatore (un filo più rapido)
 const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiungere la velocità massima
-const HIT_REACH = 3.4;          // raggio hit zone (ridotto un po': richiede più precisione)
+const HIT_REACH = 2.9;          // raggio hit zone più stretto: serve precisione nel posizionarsi
 const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
 
 const TICK_HZ = 60;
@@ -480,8 +482,9 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   const opp = p.team === 'A' ? 1 : -1;
   // larghezza utile: singolo o doppio a seconda dei giocatori in campo
   const hwIn = activePlayers().length >= 4 ? COURT.DOUBLES_HALF_W : COURT.SINGLES_HALF_W;
-  // target base
-  let targetX = (joyAngle ? joyAngle.x : 0) * hwIn * 0.85;
+  // target base: a stecca piena si può mirare fino alla riga (angoli stretti).
+  // Il clamp più sotto decide se l'angolo resta dentro (timing buono) o esce (late).
+  let targetX = (joyAngle ? joyAngle.x : 0) * hwIn * 1.4;
   let targetZ = opp * (COURT.BASELINE_Z * 0.85);
   let height = 0.9; // altezza di atterraggio desiderata
   let speed = 16;
@@ -508,13 +511,13 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     height = 0.4;
     spin = -0.15;
   } else if (shotType === 'drive') {
-    // tasto SMASH a palla bassa: colpo TESO e potente, non un lob
-    speed = 26 + charge * 14;
+    // tasto SMASH a palla bassa: colpo TESO e veloce, non un lob
+    speed = 19 + charge * 12;
     height = 0.4;
     spin = 0.5;
   } else if (shotType === 'lob') {
-    speed = 10 + charge * 4;
-    targetZ = opp * (COURT.BASELINE_Z * 0.85 - Math.random() * 1.5);
+    speed = 11 + charge * 5;
+    targetZ = opp * (COURT.BASELINE_Z * 1.0 - Math.random() * 0.7); // profondo, vicino alla riga
     height = 0.9;
     vyBoost = 2; // l'arco alto nasce già dalla bassa velocità (tempo di volo lungo)
     spin = 0.3;
@@ -531,39 +534,36 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     spin = -0.35;
   }
 
-  // bonus super
+  // bonus super: il doppio della velocità + bersaglio più corto (a doppia
+  // velocità servirebbe troppo campo, così la bordata resta comunque dentro).
   if (teamEnergyFull) {
-    speed *= 1.8;
+    speed *= SUPER_SPEED_MULT;
     spin *= 1.2;
+    targetZ *= 0.6;
   }
 
   // perfect → maggiore precisione e potenza
   if (timing === 'perfect') {
-    speed *= 1.15;
-    targetX += (joyAngle ? joyAngle.x : 0) * 1.2;
+    speed *= 1.12;
+    targetX += (joyAngle ? joyAngle.x : 0) * 1.0;
   } else if (timing === 'late') {
-    speed *= 0.7;
-    // rischio rete o out (ammorbidito: i rally devono durare)
-    if (Math.random() < 0.3) {
-      // tiro debole verso rete
-      targetZ *= 0.25;
-      height = 0.05;
-    } else {
-      // out
-      targetZ *= 1.25;
-    }
+    speed *= 0.85;
+    // colpo preso in ritardo: ogni tanto corto in rete; non più "lungo" automatico
+    if (Math.random() < 0.18) { targetZ *= 0.5; height = 0.12; }
   }
 
-  // auto-aim assistito: i colpi puliti (perfect/good) restano sempre dentro il campo;
-  // solo i colpi "late" possono finire larghi.
-  if (timing !== 'late') {
-    targetX = clamp(targetX, -hwIn * 0.85, hwIn * 0.85);
-  } else {
-    targetX = clamp(targetX, -hwIn - 1.5, hwIn + 1.5);
+  // ANGOLO: a stecca piena si tira fino alla riga. Timing pulito = resta dentro
+  // (anche stretto); preso male (late) + angolo eccessivo = ESCE (rischio/abilità).
+  if (timing === 'perfect') {
+    targetX = clamp(targetX, -hwIn * 1.08, hwIn * 1.08);
+  } else if (timing === 'good') {
+    targetX = clamp(targetX, -hwIn * 0.98, hwIn * 0.98);
+  } else { // late
+    targetX = clamp(targetX, -(hwIn + 2.6), hwIn + 2.6);
   }
 
-  // -50% globale: palla più lenta e controllabile (l'arco si adatta per restare nel campo)
   speed *= SHOT_SPEED_SCALE;
+  speed = Math.min(speed, SPEED_CAP); // tetto fisico per restare nel campo
 
   // calcola velocità per arrivare al target
   const dxT = targetX - p.x;
@@ -581,6 +581,17 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   ball.vx = ndx * speed;
   ball.vz = ndz * speed;
   ball.vy = (height - launchY) / tFlight + 0.5 * gEff * tFlight + vyBoost;
+  // garanzia anti-rete: un colpo molto teso/veloce potrebbe passare sotto il nastro.
+  // Se la traiettoria prevista è troppo bassa all'altezza della rete, alziamo vy
+  // quel minimo che basta a scavalcarla (margine ~0.25m sopra il nastro centrale).
+  if (Math.abs(ball.vz) > 0.1 && Math.sign(ndz) !== 0) {
+    const tNet = Math.abs(p.z) / Math.abs(ball.vz);
+    if (tNet > 0 && tNet < tFlight) {
+      const yNet = launchY + ball.vy * tNet - 0.5 * gEff * tNet * tNet;
+      const need = COURT.NET_H_CENTER + 0.15;
+      if (yNet < need) ball.vy += (need - yNet) / tNet;
+    }
+  }
   ball.spin = spin;
   ball.curve = shotName === 'slice' ? (joyAngle && joyAngle.x ? Math.sign(joyAngle.x) * 0.15 : 0) : 0;
   ball.lastHitter = p.id;
