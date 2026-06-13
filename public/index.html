@@ -1195,7 +1195,7 @@ function updatePlayer3D(p, dt) {
   a.dejT = Math.max(0, a.dejT - dt);
 
   const speed = Math.hypot(p.vx || 0, p.vz || 0);
-  const speedN = Math.min(1, speed / 5.0);
+  const speedN = Math.min(1, speed / 5.5);
   a.speedN += (speedN - a.speedN) * Math.min(1, dt * 10);
   a.run += dt * (2.2 + a.speedN * 9.5);
   a.breath += dt * 1.8;

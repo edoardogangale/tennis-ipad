@@ -51,9 +51,9 @@ const COURT_PROFILES = {
 const SHOT_SPEED_SCALE = 0.6;   // velocità colpi ridotta vs originale: palla pesante e leggibile ma viva (feel PS)
 const AIR_DRAG = 0.024;         // attrito in aria (era 0.012): la palla rallenta naturalmente durante il rally
 const GROUND_FRIC_SCALE = 0.85; // attrito a terra: dopo il rimbalzo trattiene meno velocità orizzontale
-const PLAYER_SPEED_SCALE = 1.3; // +30% sulla velocità massima del giocatore
+const PLAYER_SPEED_SCALE = 1.4; // velocità massima del giocatore (un filo più rapido)
 const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiungere la velocità massima
-const HIT_REACH = 4.0;          // raggio hit zone raddoppiato (era 2.0): più facile arrivare sulla palla
+const HIT_REACH = 3.4;          // raggio hit zone (ridotto un po': richiede più precisione)
 const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
 
 const TICK_HZ = 60;
@@ -497,10 +497,10 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   // colpo leggero (charge~0) = palla lenta, colpo carico (charge~1) = palla veloce.
   if (isSmash) {
     shotName = 'smash';
-    speed = 24 + charge * 8;
+    speed = 30 + charge * 10;   // schiacciata vera: potente
     targetZ = opp * (COURT.SERVICE_Z + 1.5 + Math.random() * 2);
     height = 0.1;
-    spin = 0.8;
+    spin = 0.9;
   } else if (isVolley) {
     shotName = 'volley';
     speed = 12 + charge * 3; // la carica conta poco: è un tocco di riflesso
@@ -508,9 +508,10 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     height = 0.4;
     spin = -0.15;
   } else if (shotType === 'drive') {
-    speed = 14 + charge * 12;
-    height = 0.4 + Math.random() * 0.4;
-    spin = 0.6;
+    // tasto SMASH a palla bassa: colpo TESO e potente, non un lob
+    speed = 26 + charge * 14;
+    height = 0.4;
+    spin = 0.5;
   } else if (shotType === 'lob') {
     speed = 10 + charge * 4;
     targetZ = opp * (COURT.BASELINE_Z * 0.85 - Math.random() * 1.5);
@@ -523,9 +524,11 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     height = 0.35;
     spin = -0.8; // backspin
   } else if (shotType === 'slice') {
-    speed = 13 + charge * 6;
-    height = 0.3;
-    spin = -0.6;
+    // slice controllato: più corto e con poco backspin → resta SEMPRE dentro
+    speed = 12 + charge * 5;
+    targetZ = opp * (COURT.BASELINE_Z * 0.70);
+    height = 0.32;
+    spin = -0.35;
   }
 
   // bonus super
@@ -579,7 +582,7 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   ball.vz = ndz * speed;
   ball.vy = (height - launchY) / tFlight + 0.5 * gEff * tFlight + vyBoost;
   ball.spin = spin;
-  ball.curve = shotName === 'slice' ? (joyAngle && joyAngle.x ? Math.sign(joyAngle.x) * 1.2 : 0) : 0;
+  ball.curve = shotName === 'slice' ? (joyAngle && joyAngle.x ? Math.sign(joyAngle.x) * 0.15 : 0) : 0;
   ball.lastHitter = p.id;
   ball.lastHitterTeam = p.team;
   ball.crossedNet = false;
