@@ -11,5 +11,9 @@
   "dependencies": {
     "express": "4.18.2",
     "socket.io": "4.7.2"
+  },
+  "devDependencies": {
+    "nipplejs": "0.10.2",
+    "three": "0.160.1"
   }
 }

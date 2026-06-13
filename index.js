@@ -48,7 +48,7 @@ const COURT_PROFILES = {
 // ---------------------------------------------------------------------------
 // Tuning giocabilità (facile da regolare in un punto solo)
 // ---------------------------------------------------------------------------
-const SHOT_SPEED_SCALE = 0.5;   // -50% sulla velocità di TUTTI i colpi: palla pesante e controllabile, non un missile
+const SHOT_SPEED_SCALE = 0.6;   // velocità colpi ridotta vs originale: palla pesante e leggibile ma viva (feel PS)
 const AIR_DRAG = 0.024;         // attrito in aria (era 0.012): la palla rallenta naturalmente durante il rally
 const GROUND_FRIC_SCALE = 0.85; // attrito a terra: dopo il rimbalzo trattiene meno velocità orizzontale
 const PLAYER_SPEED_SCALE = 1.3; // +30% sulla velocità massima del giocatore

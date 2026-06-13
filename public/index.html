@@ -7,17 +7,17 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0b1020">
-<title>TENNIS · Multiplayer</title>
+<title>TENNIS · Multiplayer 3D</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; touch-action: none; }
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #07080d; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; color: #fff; overscroll-behavior: none; }
   body { position: fixed; inset: 0; }
-  #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; image-rendering: -webkit-optimize-contrast; }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
   /* ============ LOBBY ============ */
   #lobby { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
-    background: radial-gradient(ellipse at 50% 30%, #1f2a48 0%, #0a0f1e 60%, #050811 100%);
+    background: radial-gradient(ellipse at 50% 30%, rgba(31,42,72,0.94) 0%, rgba(10,15,30,0.96) 60%, rgba(5,8,17,0.98) 100%);
     padding: 20px; z-index: 30; }
   #lobby.hidden { display: none; }
   .logo {
@@ -66,11 +66,11 @@
     background: linear-gradient(180deg, rgba(15,20,40,0.85), rgba(8,12,28,0.85));
     border: 1px solid rgba(255,255,255,0.12); border-radius: 12px;
     padding: 6px 10px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    display: grid; grid-template-columns: auto repeat(4, minmax(28px, auto)); gap: 6px 10px;
+    display: grid; gap: 6px 10px;
     font-family: ui-monospace, SFMono-Regular, monospace; font-size: 14px;
     box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+    transform-origin: top center;
   }
-  .scoreboard { transform-origin: top center; }
   .scoreboard .row { display: contents; }
   .scoreboard .tn { font-weight: 800; letter-spacing: 0.08em; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
   .scoreboard .tn.A { color: #74c0fc; }
@@ -82,6 +82,16 @@
   .scoreboard .head { font-size: 10px; opacity: 0.55; letter-spacing: 0.12em; text-align: center; padding-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,0.08); }
   .serve-dot { color: #ffd166; margin-right: 4px; font-size: 10px; vertical-align: middle; animation: blink 1.4s infinite; }
   .meta { display: flex; gap: 12px; font-size: 11px; opacity: 0.6; letter-spacing: 0.08em; text-transform: uppercase; }
+
+  /* ============ ENERGY (SUPER) ============ */
+  .energy { position: absolute; left: 50%; transform: translateX(-50%); width: 36%; max-width: 380px; height: 10px;
+    background: #131b2e; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; z-index: 21; pointer-events: none; overflow: hidden; }
+  #energyMine { bottom: 12px; }
+  #energyOpp { top: 84px; height: 7px; opacity: 0.8; }
+  .energy .efill { height: 100%; width: 0%; background: #3a86ff; border-radius: 5px; transition: width 0.2s; }
+  .energy.full .efill { background: linear-gradient(90deg, #ff006e, #fb5607, #ffbe0b, #06d6a0, #3a86ff); animation: blink 0.8s infinite; }
+  .energy .elabel { position: absolute; inset: 0; font-size: 8px; font-weight: 800; letter-spacing: 0.1em;
+    display: flex; align-items: center; justify-content: center; color: #fff; text-shadow: 0 1px 2px #000; font-family: ui-monospace, monospace; }
 
   /* ============ CONTROLS ============ */
   #joy { position: absolute; left: 20px; bottom: 20px; width: 170px; height: 170px; z-index: 25; }
@@ -132,7 +142,6 @@
     background: #14203a; border: 1px solid rgba(255,255,255,0.12); }
   .serve-power-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
     background: linear-gradient(90deg, #06d6a0, #ffd166, #ff4444); transition: width 0.04s linear; }
-  /* zona "sweet spot" (release qui = servizio preciso) */
   .serve-sweet { position: absolute; top: 0; bottom: 0; left: 64%; width: 32%;
     background: rgba(6,214,160,0.30); border-left: 1px solid rgba(255,255,255,0.6); border-right: 1px solid rgba(255,255,255,0.6); }
   .serve-go { padding: 14px; border-radius: 12px; border: 0; cursor: pointer; touch-action: none; user-select: none;
@@ -173,7 +182,7 @@
 
 <div id="lobby">
   <div class="logo">TENNIS</div>
-  <div class="tagline">MULTIPLAYER · TOUCH · 120fps</div>
+  <div class="tagline">MULTIPLAYER · 3D · STADIO NOTTURNO</div>
   <div class="name-row">
     <input id="nameIn" placeholder="Il tuo nome" maxlength="14">
   </div>
@@ -188,6 +197,8 @@
 
 <div id="hud"></div>
 <div id="connInfo"></div>
+<div id="energyMine" class="energy"><div class="efill"></div><span class="elabel">SUPER</span></div>
+<div id="energyOpp" class="energy"><div class="efill"></div></div>
 
 <div id="joy"><div class="joy-base"></div></div>
 <div id="shots">
@@ -220,7 +231,8 @@
 <div id="vignette"></div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/nipplejs@0.10.2/dist/nipplejs.min.js"></script>
+<script src="/vendor/nipplejs.min.js"></script>
+<script src="/vendor/three.min.js"></script>
 <script>
 'use strict';
 
@@ -239,18 +251,18 @@ const COURT = {
 
 const COURT_THEMES = {
   clay: {
-    base: '#c2552a', baseDark: '#8b3a1a', line: '#fff6e6',
-    fence: '#3a2218', particle: ['#c2552a', '#8b3a1a', '#e07b4a', '#a83e16'],
+    base: '#b34a22', baseDark: '#7e3514', apron: '#5e2810', line: '#fff6e6',
+    particle: ['#c2552a', '#8b3a1a', '#e07b4a', '#a83e16'],
     name: 'TERRA ROSSA', desc: 'Scivolata vistosa · rimbalzo alto · palla che rallenta',
   },
   grass: {
-    base: '#3aa54f', baseDark: '#2a7a3a', line: '#ffffff',
-    fence: '#234d2c', particle: ['#5fbf6f', '#2a7a3a', '#7fd190', '#4a9a5a'],
+    base: '#2e8b43', baseDark: '#1f6630', apron: '#16441f', line: '#ffffff',
+    particle: ['#5fbf6f', '#2a7a3a', '#7fd190', '#4a9a5a'],
     name: 'ERBA', desc: 'Grip totale · cambi fulminei · palla che schizza bassa',
   },
   hard: {
-    base: '#1f4d8f', baseDark: '#143a6e', line: '#ffffff',
-    fence: '#0a1a2e', particle: ['#90a3c0', '#b0c0d8', '#7090b0', '#a0b0c8'],
+    base: '#2456a8', baseDark: '#173a75', apron: '#10264d', line: '#ffffff',
+    particle: ['#90a3c0', '#b0c0d8', '#7090b0', '#a0b0c8'],
     name: 'CEMENTO', desc: 'Bilanciato · rimbalzo medio · velocità media',
   },
 };
@@ -260,64 +272,10 @@ const TEAM_COLOR = {
   B: { main: '#ff4444', dark: '#b91c1c', light: '#ff8787' },
 };
 
-// =========================================================================
-// Canvas
-// =========================================================================
-const cv = document.getElementById('cv');
-const ctx = cv.getContext('2d', { alpha: false, desynchronized: true });
-let DPR = Math.min(2, window.devicePixelRatio || 1);
-let W = 0, H = 0;
-
-function resize() {
-  DPR = Math.min(2, window.devicePixelRatio || 1);
-  W = window.innerWidth;
-  H = window.innerHeight;
-  cv.width = Math.floor(W * DPR);
-  cv.height = Math.floor(H * DPR);
-  cv.style.width = W + 'px';
-  cv.style.height = H + 'px';
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-}
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 100));
-resize();
+const SHOT_COLORS = { drive: '#ff6b6b', smash: '#ff3030', lob: '#69db7c', drop: '#ffffff', slice: '#74c0fc', serve: '#ffd166', volley: '#ffe066' };
 
 // =========================================================================
-// Proiezione (pseudo-3D)
-// myTeam: 'A' o 'B' → flip della vista
-// =========================================================================
-const view = {
-  myTeam: 'A',
-  baseScale: 50,
-  cam: { nearY: 0, farY: 0, nearScale: 0, farScale: 0 },
-};
-
-function updateCam() {
-  // disegniamo il campo tra ~22% e 90% dell'altezza
-  view.cam.nearY = H * 0.90;
-  view.cam.farY = H * 0.20;
-  // scale orizzontale: ~14m di larghezza visibile sul lato vicino
-  view.baseScale = W / 16;
-  view.cam.nearScale = view.baseScale * 1.55;
-  view.cam.farScale = view.baseScale * 0.50;
-}
-
-// Proietta da world (x,y,z) a screen
-function project(x, y, z) {
-  const fx = (view.myTeam === 'B') ? -x : x;
-  const fz = (view.myTeam === 'B') ? -z : z;
-  // t = 0 vicino (bottom), 1 lontano (top)
-  const t = (fz + COURT.BASELINE_Z + 3) / (2 * (COURT.BASELINE_Z + 3));
-  const tc = Math.max(-0.1, Math.min(1.1, t));
-  const ny = view.cam.nearY + (view.cam.farY - view.cam.nearY) * tc;
-  const sc = view.cam.nearScale + (view.cam.farScale - view.cam.nearScale) * tc;
-  const sx = W / 2 + fx * sc;
-  const sy = ny - y * sc * 0.55;
-  return { x: sx, y: sy, s: sc };
-}
-
-// =========================================================================
-// Socket
+// Socket + stato di rete
 // =========================================================================
 const socket = io({ transports: ['websocket', 'polling'] });
 let myId = null;
@@ -329,7 +287,6 @@ let stateRecvT = 0;
 let stateInterval = 1000 / 30;
 
 const connInfo = document.getElementById('connInfo');
-let lastPingT = 0;
 
 socket.on('connect', () => {
   myId = socket.id;
@@ -352,464 +309,23 @@ socket.on('lobby', (d) => {
 });
 socket.on('joined', (d) => {
   myTeam = d.team;
-  view.myTeam = myTeam;
   document.getElementById('lobby').classList.add('hidden');
-  scheduleShare();
+  unlockAudio();
 });
 socket.on('state', (s) => {
   lastState = nextState || s;
   nextState = s;
   stateRecvT = performance.now();
   serverState = s;
+  if (s.court && s.court !== builtCourtKey) rebuildCourt(s.court);
   if (s.events) processEvents(s.events);
 });
 
-// =========================================================================
-// Lobby UI / scelta campo
-// =========================================================================
-let selectedCourt = 'hard';
-function renderCourtCards() {
-  const root = document.getElementById('courts');
-  root.innerHTML = '';
-  for (const key of ['clay', 'grass', 'hard']) {
-    const t = COURT_THEMES[key];
-    const div = document.createElement('div');
-    div.className = 'court-card' + (selectedCourt === key ? ' sel' : '');
-    div.innerHTML = `
-      <div class="court-thumb"><canvas width="200" height="125"></canvas></div>
-      <div class="court-name">${t.name}</div>
-      <div class="court-desc">${t.desc}</div>
-    `;
-    div.onclick = () => { selectedCourt = key; renderCourtCards(); socket.emit('setCourt', { court: key }); };
-    root.appendChild(div);
-    // thumbnail render
-    const th = div.querySelector('canvas');
-    const tctx = th.getContext('2d');
-    drawCourtThumb(tctx, key, 200, 125);
-  }
-}
-
-function drawCourtThumb(c, key, w, h) {
-  const t = COURT_THEMES[key];
-  // fondo
-  c.fillStyle = t.baseDark; c.fillRect(0, 0, w, h);
-  // campo trapezio
-  c.fillStyle = t.base;
-  c.beginPath();
-  c.moveTo(w * 0.05, h * 0.92); c.lineTo(w * 0.95, h * 0.92);
-  c.lineTo(w * 0.78, h * 0.22); c.lineTo(w * 0.22, h * 0.22); c.closePath(); c.fill();
-  if (key === 'grass') {
-    // strisce
-    c.globalAlpha = 0.18; c.fillStyle = '#fff';
-    for (let i = 0; i < 5; i++) {
-      const y0 = h * 0.22 + i * (h * 0.7 / 5);
-      const y1 = y0 + (h * 0.7 / 5);
-      if (i % 2 === 0) {
-        const trapTop0 = (y0 - h * 0.22) / (h * 0.70);
-        const trapTop1 = (y1 - h * 0.22) / (h * 0.70);
-        const xL0 = w * 0.22 + (w * 0.05 - w * 0.22) * trapTop0;
-        const xR0 = w * 0.78 + (w * 0.95 - w * 0.78) * trapTop0;
-        const xL1 = w * 0.22 + (w * 0.05 - w * 0.22) * trapTop1;
-        const xR1 = w * 0.78 + (w * 0.95 - w * 0.78) * trapTop1;
-        c.beginPath(); c.moveTo(xL0, y0); c.lineTo(xR0, y0); c.lineTo(xR1, y1); c.lineTo(xL1, y1); c.closePath(); c.fill();
-      }
-    }
-    c.globalAlpha = 1;
-  }
-  // linee
-  c.strokeStyle = t.line; c.lineWidth = 1.5;
-  c.beginPath();
-  c.moveTo(w * 0.05, h * 0.92); c.lineTo(w * 0.95, h * 0.92);
-  c.moveTo(w * 0.22, h * 0.22); c.lineTo(w * 0.78, h * 0.22);
-  c.moveTo(w * 0.05, h * 0.92); c.lineTo(w * 0.22, h * 0.22);
-  c.moveTo(w * 0.95, h * 0.92); c.lineTo(w * 0.78, h * 0.22);
-  // rete
-  c.moveTo(w * 0.12, h * 0.58); c.lineTo(w * 0.88, h * 0.58);
-  c.stroke();
-}
-renderCourtCards();
-
-document.getElementById('enterBtn').onclick = () => {
-  const name = (document.getElementById('nameIn').value || '').trim();
-  socket.emit('join', { name, court: selectedCourt });
-};
-document.getElementById('nameIn').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') document.getElementById('enterBtn').click();
-});
-function scheduleShare() { document.getElementById('shareUrl').textContent = location.href.split('?')[0]; }
-
-// =========================================================================
-// Input: joystick + shot buttons + emote
-// =========================================================================
-let joy = { x: 0, y: 0, active: false };
-
-const nip = nipplejs.create({
-  zone: document.getElementById('joy'),
-  mode: 'static',
-  position: { left: '50%', top: '50%' },
-  color: '#ffd166',
-  size: 150,
-  threshold: 0.1,
-  restOpacity: 0.55,
-});
-nip.on('move', (_, data) => {
-  if (!data || !data.vector) return;
-  joy.x = data.vector.x;
-  joy.y = data.vector.y;
-  joy.active = true;
-});
-nip.on('end', () => { joy.x = 0; joy.y = 0; joy.active = false; });
-
-// invio input al server a 30Hz
-let lastInputSent = { mx: 0, mz: 0 };
-setInterval(() => {
-  // converti joystick in input world frame
-  const flip = (myTeam === 'B') ? -1 : 1;
-  const mx = joy.x * flip;
-  const mz = joy.y * flip; // joystick y positivo = su = avanti
-  if (Math.abs(mx - lastInputSent.mx) > 0.04 || Math.abs(mz - lastInputSent.mz) > 0.04
-      || (mx === 0 && mz === 0 && (lastInputSent.mx !== 0 || lastInputSent.mz !== 0))) {
-    socket.emit('input', { mx, mz });
-    lastInputSent = { mx, mz };
-  }
-}, 1000 / 30);
-
-// Shot buttons (charge + release)
-let charging = null; // {shot, startT}
-let chargeTickTimer = null;
-
-const shotEls = document.querySelectorAll('.sb');
-const shotElByName = {};
-shotEls.forEach((el) => { shotElByName[el.dataset.shot] = el; });
-
-// Termina la carica del colpo. emit=true → tira il colpo; emit=false → annulla pulito.
-function endShotCharge(emit) {
-  if (!charging) return;
-  const cur = charging;
-  charging = null;
-  if (chargeTickTimer) { clearInterval(chargeTickTimer); chargeTickTimer = null; }
-  const el = shotElByName[cur.shot];
-  if (el) el.classList.remove('held');
-  if (!emit) return;
-  const charge = Math.min(1.5, (performance.now() - cur.startT) / 1000);
-  const flip = (myTeam === 'B') ? -1 : 1;
-  const angle = { x: joy.x * flip, y: joy.y * flip };
-  const useSuper = serverState && serverState.energy && serverState.energy[myTeam] >= 1.0;
-  socket.emit('shot', { shot: cur.shot, charge, angle, useSuper });
-}
-
-shotEls.forEach((el) => {
-  const shot = el.dataset.shot;
-  el.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    if (charging) endShotCharge(false);
-    charging = { shot, startT: performance.now() };
-    el.classList.add('held');
-    socket.emit('chargeStart', {});
-    if (chargeTickTimer) clearInterval(chargeTickTimer);
-    chargeTickTimer = setInterval(() => {
-      if (!charging) return;
-      const t = Math.min(1.5, (performance.now() - charging.startT) / 1000);
-      socket.emit('chargeTick', { t });
-    }, 100);
-  });
-});
-// Rilascio ascoltato a livello window: il pointerup vale ovunque, anche fuori dal pulsante
-// o quando #shots viene nascosto (fine punto), evitando cariche appese.
-window.addEventListener('pointerup', () => endShotCharge(true));
-window.addEventListener('pointercancel', () => endShotCharge(true));
-
-document.querySelectorAll('.emote').forEach((el) => {
-  el.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    socket.emit('emote', { key: el.dataset.key });
-  });
-});
-
-// =========================================================================
-// Servizio: scelta tipo + barra potenza/precisione (tieni premuto, rilascia)
-// =========================================================================
-let serveType = 'flat';
-let serveCharging = null;
-let serveChargeTimer = null;
-const serveGo = document.getElementById('serveGo');
-const servePowerFill = document.getElementById('servePowerFill');
-
-document.querySelectorAll('.serve-type').forEach((el) => {
-  el.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    document.querySelectorAll('.serve-type').forEach(t => t.classList.remove('sel'));
-    el.classList.add('sel');
-    serveType = el.dataset.serve;
-  });
-});
-
-// Riporta il pulsante allo stato di riposo senza servire (per reset difensivo).
-function resetServeCharge() {
-  serveCharging = null;
-  if (serveChargeTimer) { clearInterval(serveChargeTimer); serveChargeTimer = null; }
-  serveGo.classList.remove('held');
-  serveGo.textContent = 'TIENI PER CARICARE';
-  servePowerFill.style.width = '0%';
-}
-function serveDown(e) {
-  e.preventDefault();
-  // se siamo in fase di servizio ma per qualche motivo lo stato era rimasto sporco, ripulisci.
-  if (serveCharging) resetServeCharge();
-  serveCharging = { startT: performance.now() };
-  serveGo.classList.add('held');
-  serveGo.textContent = 'RILASCIA PER SERVIRE';
-  socket.emit('chargeStart', {});
-  if (serveChargeTimer) clearInterval(serveChargeTimer);
-  serveChargeTimer = setInterval(() => {
-    if (!serveCharging) return;
-    const t = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
-    servePowerFill.style.width = Math.min(100, (t / 1.5) * 100) + '%';
-    socket.emit('chargeTick', { t });
-  }, 40);
-}
-function serveUp(e) {
-  if (!serveCharging) return;
-  e && e.preventDefault();
-  const charge = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
-  resetServeCharge();
-  const flip = (myTeam === 'B') ? -1 : 1;
-  const angle = { x: joy.x * flip, y: joy.y * flip };
-  socket.emit('shot', { shot: 'serve', charge, angle, serveType });
-}
-serveGo.addEventListener('pointerdown', serveDown);
-// Il rilascio è ascoltato a livello window: così un pointerup/cancel fuori dal pulsante
-// (o quando il pannello viene nascosto) non lascia lo stato di servizio bloccato.
-window.addEventListener('pointerup', serveUp);
-window.addEventListener('pointercancel', serveUp);
-
-// =========================================================================
-// Particle system (oggetto pool)
-// =========================================================================
-const particles = [];
-const PARTICLE_POOL = [];
-function pSpawn(o) {
-  const p = PARTICLE_POOL.pop() || {};
-  p.x = o.x || 0; p.y = o.y || 0; p.z = o.z || 0;
-  p.vx = o.vx || 0; p.vy = o.vy || 0; p.vz = o.vz || 0;
-  p.life = o.life || 0.6; p.maxLife = p.life;
-  p.color = o.color || '#fff';
-  p.size = o.size || 4;
-  p.kind = o.kind || 'dot';
-  p.g = o.g !== undefined ? o.g : 18;
-  p.fric = o.fric !== undefined ? o.fric : 0.96;
-  particles.push(p);
-}
-function pStep(dt) {
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.life -= dt;
-    if (p.life <= 0) {
-      particles.splice(i, 1);
-      if (PARTICLE_POOL.length < 500) PARTICLE_POOL.push(p);
-      continue;
-    }
-    p.vy -= p.g * dt;
-    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-    if (p.y < 0) { p.y = 0; p.vy *= -0.4; p.vx *= p.fric; p.vz *= p.fric; }
-  }
-}
-function pDraw() {
-  for (const p of particles) {
-    const a = Math.max(0, p.life / p.maxLife);
-    const pr = project(p.x, p.y, p.z);
-    ctx.globalAlpha = a;
-    if (p.kind === 'star') {
-      drawStar(pr.x, pr.y, p.size * pr.s / view.cam.nearScale * 1.8, 5, p.color);
-    } else if (p.kind === 'streak') {
-      ctx.fillStyle = p.color;
-      ctx.fillRect(pr.x - 2, pr.y - 2, 4 + p.size, 4);
-    } else {
-      ctx.fillStyle = p.color;
-      const r = p.size * (pr.s / view.cam.nearScale) * 1.2;
-      ctx.beginPath(); ctx.arc(pr.x, pr.y, Math.max(0.6, r), 0, Math.PI * 2); ctx.fill();
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawStar(x, y, r, n, color) {
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  for (let i = 0; i < n * 2; i++) {
-    const ang = -Math.PI / 2 + i * Math.PI / n;
-    const rr = i % 2 === 0 ? r : r * 0.45;
-    const px = x + Math.cos(ang) * rr;
-    const py = y + Math.sin(ang) * rr;
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-  }
-  ctx.closePath(); ctx.fill();
-}
-
-// Pop ring + flash al contatto racchetta-palla
-const popRings = [];
-function spawnPop(x, y, z, color) {
-  popRings.push({ x, y, z, t: 0, life: 0.34, color: color || '#ffffff' });
-}
-function stepPops(dt) {
-  for (let i = popRings.length - 1; i >= 0; i--) {
-    popRings[i].t += dt;
-    if (popRings[i].t >= popRings[i].life) popRings.splice(i, 1);
-  }
-}
-function drawPops() {
-  for (const r of popRings) {
-    const k = r.t / r.life;
-    const pr = project(r.x, r.y, r.z);
-    const rad = (10 + k * 46) * (pr.s / view.cam.nearScale);
-    ctx.globalAlpha = (1 - k) * 0.9;
-    ctx.strokeStyle = r.color;
-    ctx.lineWidth = (1 - k) * 4 + 1;
-    ctx.beginPath(); ctx.arc(pr.x, pr.y, rad, 0, Math.PI * 2); ctx.stroke();
-    if (k < 0.4) {
-      ctx.globalAlpha = (0.45 - k);
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(pr.x, pr.y, rad * 0.45, 0, Math.PI * 2); ctx.fill();
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
-// Marks (segni rimbalzo) — gestiti dal server in ball.marks ma teniamo anche pool locali per estetica
-const localMarks = [];
-function addMark(x, z, court) {
-  localMarks.push({ x, z, t: performance.now(), court });
-  if (localMarks.length > 40) localMarks.shift();
-}
-
-// =========================================================================
-// Effetti UI: toast, flash, screen shake, slowmo
-// =========================================================================
-let shakeT = 0, shakeAmp = 0;
-let slowmoT = 0;
-const toastEl = document.getElementById('toast');
-const flashEl = document.getElementById('flash');
-const vignetteEl = document.getElementById('vignette');
-function toast(text, klass = '', dur = 900) {
-  toastEl.textContent = text;
-  toastEl.className = 'show ' + klass;
-  clearTimeout(toast._t);
-  toast._t = setTimeout(() => { toastEl.classList.remove('show'); }, dur);
-}
-function flash(amount = 0.7, dur = 180) {
-  flashEl.style.opacity = amount;
-  setTimeout(() => { flashEl.style.opacity = 0; }, dur);
-}
-function vignette(color = 'rgba(255,0,0,0.4)', dur = 350) {
-  vignetteEl.style.boxShadow = `inset 0 0 120px 0 ${color}`;
-  setTimeout(() => { vignetteEl.style.boxShadow = 'inset 0 0 0 0 transparent'; }, dur);
-}
-function shake(a, d = 0.35) { shakeAmp = Math.max(shakeAmp, a); shakeT = Math.max(shakeT, d); }
-
-// =========================================================================
-// Eventi server
-// =========================================================================
-function processEvents(events) {
-  for (const ev of events) {
-    if (ev.type === 'hit') {
-      const p = (serverState.players || []).find(pp => pp.id === ev.id);
-      const isMe = ev.id === myId;
-      // memorizza tipo e lato del colpo per l'animazione dello swing
-      const an = getAnim(ev.id);
-      an.shot = ev.shot || 'drive';
-      an.sideX = ev.sideX || 1;
-      // split-step: chi deve rispondere fa il saltello di preparazione
-      const hitterTeam = ev.team || (p && p.team);
-      if (hitterTeam) {
-        for (const q of serverState.players || []) {
-          if (q.team !== hitterTeam) getAnim(q.id).splitT = 0.26;
-        }
-      }
-      shake(0.4 + (ev.charge || 0) * 1.2 + (ev.super ? 1.5 : 0));
-      // flash al contatto racchetta-palla: sottile sui colpi normali, più deciso su perfetto/carico
-      flash(0.16 + (ev.charge || 0) * 0.2 + (ev.timing === 'perfect' ? 0.18 : 0), 110);
-      // particelle scia colore
-      const c = SHOT_COLORS[ev.shot] || '#fff';
-      if (p) {
-        for (let i = 0; i < 6; i++) {
-          pSpawn({ x: ev.x, y: 1.2, z: ev.z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3, life: 0.4, color: c, size: 3 });
-        }
-      }
-      // pop di contatto: flash bianco + cerchio che si espande sul punto d'impatto
-      spawnPop(ev.x, 1.1, ev.z, '#ffffff');
-      if (ev.timing === 'perfect' || ev.super) spawnPop(ev.x, 1.1, ev.z, ev.super ? '#ff006e' : '#06d6a0');
-      if (ev.shot === 'smash') { shake(2.2, 0.5); flash(0.4); slowmoT = 0.25; }
-      if (ev.super) { shake(2.5, 0.6); flash(0.7); }
-    } else if (ev.type === 'perfect') {
-      toast('PERFECT!', 'gold', 800);
-      for (let i = 0; i < 14; i++) {
-        const a = (i / 14) * Math.PI * 2;
-        pSpawn({ x: ev.x, y: 1.4, z: ev.z, vx: Math.cos(a) * 3, vy: 2 + Math.random() * 2, vz: Math.sin(a) * 3, life: 0.8, color: '#ffd166', size: 5, kind: 'star', g: 8 });
-      }
-    } else if (ev.type === 'bounce') {
-      addMark(ev.x, ev.z, ev.court);
-      const theme = COURT_THEMES[ev.court] || COURT_THEMES.hard;
-      const cols = theme.particle;
-      const n = ev.court === 'clay' ? 14 : ev.court === 'grass' ? 10 : 8;
-      for (let i = 0; i < n; i++) {
-        const ang = Math.random() * Math.PI * 2;
-        const sp = 1 + Math.random() * 3;
-        pSpawn({
-          x: ev.x, y: 0.05, z: ev.z,
-          vx: Math.cos(ang) * sp, vy: 1 + Math.random() * 3, vz: Math.sin(ang) * sp,
-          life: 0.5 + Math.random() * 0.4,
-          color: cols[i % cols.length], size: 3 + Math.random() * 2,
-          g: 18, fric: 0.9,
-        });
-      }
-    } else if (ev.type === 'out') {
-      toast('OUT!', 'red', 900);
-      flash(0.4); vignette('rgba(255,50,50,0.55)', 400);
-    } else if (ev.type === 'net') {
-      toast('NET!', '', 700);
-    } else if (ev.type === 'fault') {
-      toast(ev.n === 1 ? 'FAULT' : 'DOUBLE FAULT!', ev.n === 1 ? 'orange' : 'red', 900);
-    } else if (ev.type === 'serveHit') {
-      // niente toast, solo info
-    } else if (ev.type === 'pointWon') {
-      flash(0.5, 250);
-      shake(1.5, 0.4);
-      // esultanza per chi vince il punto, delusione per chi lo perde
-      for (const q of serverState.players || []) {
-        const an = getAnim(q.id);
-        if (q.team === ev.team) { an.celeT = 1.4; an.dejT = 0; }
-        else { an.dejT = 1.4; an.celeT = 0; }
-      }
-    } else if (ev.type === 'miss') {
-      if (ev.id === myId) toast('A VUOTO!', 'orange', 500);
-    } else if (ev.type === 'point') {
-      // mostrato già da pointWon
-    } else if (ev.type === 'game') {
-      toast('GAME', 'blue', 1100);
-    } else if (ev.type === 'set') {
-      toast('SET ' + ev.team, 'gold', 1500);
-    } else if (ev.type === 'match') {
-      toast(`MATCH ${ev.team === myTeam ? 'WIN' : 'LOSS'}!`, ev.team === myTeam ? 'gold' : 'red', 3000);
-    } else if (ev.type === 'deuce') {
-      toast('DEUCE', '', 900);
-    } else if (ev.type === 'advantage') {
-      toast('VANTAGGIO ' + ev.team, 'gold', 900);
-    } else if (ev.type === 'tiebreak') {
-      toast('TIE-BREAK', 'orange', 1500);
-    } else if (ev.type === 'doubleFault') {
-      toast('DOPPIO FALLO', 'red', 1100);
-    }
-  }
-}
-
-// =========================================================================
-// Interpolazione stati
-// =========================================================================
+// interpolazione tra gli ultimi 2 snapshot (broadcast a 30Hz → render fluido)
 function interp(now) {
   if (!lastState || !nextState) return nextState || lastState;
   const since = now - stateRecvT;
   const a = Math.max(0, Math.min(1, since / stateInterval));
-  // Mappa stati per id
   const lmap = new Map((lastState.players || []).map(p => [p.id, p]));
   const players = (nextState.players || []).map(np => {
     const lp = lmap.get(np.id) || np;
@@ -837,741 +353,1340 @@ function interp(now) {
 }
 
 // =========================================================================
-// Rendering: court, net, players, ball, HUD, overlays
+// Lobby UI / scelta campo (thumbnail 2D indipendenti dal renderer 3D)
 // =========================================================================
-
-// Trails palla
-const trail = [];
-let trailLastT = 0;
-
-function drawBg() {
-  // sfondo + tribune sfocate
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#070b18');
-  g.addColorStop(0.55, '#0b162d');
-  g.addColorStop(1, '#040810');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-
-  // riflettori (raggi di luce)
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  const grad = ctx.createRadialGradient(W * 0.5, H * 0.05, 50, W * 0.5, H * 0.05, H * 0.9);
-  grad.addColorStop(0, 'rgba(255, 240, 200, 0.18)');
-  grad.addColorStop(1, 'rgba(255, 240, 200, 0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-  ctx.restore();
-
-  drawCrowd();
-}
-
-function drawCrowd() {
-  // tribune ai lati del campo, sotto la baseline lontana
-  const farLeft = project(-COURT.DOUBLES_HALF_W - 6, 0, COURT.BASELINE_Z + 3);
-  const farRight = project(COURT.DOUBLES_HALF_W + 6, 0, COURT.BASELINE_Z + 3);
-  const horizonY = Math.min(farLeft.y, farRight.y) - 8;
-  ctx.fillStyle = '#0a1426';
-  ctx.fillRect(0, horizonY - 40, W, 50);
-  // pubblico stilizzato (puntini animati)
-  const t = performance.now() * 0.001;
-  const cols = ['#3a86ff', '#06d6a0', '#ffd166', '#ef476f', '#a78bfa', '#f59e0b'];
-  for (let i = 0; i < 220; i++) {
-    const rx = (i * 31.7) % W;
-    const ry = horizonY - 14 + ((i * 17.3) % 22);
-    const sw = 0.5 + Math.sin(t * 4 + i) * 0.5;
-    ctx.fillStyle = cols[i % cols.length];
-    ctx.globalAlpha = 0.55 + sw * 0.25;
-    ctx.fillRect(rx, ry + Math.sin(t * 3 + i * 0.5) * 0.6, 3, 4);
-  }
-  ctx.globalAlpha = 1;
-}
-
-function drawCourt(theme) {
-  // shadow morbida sotto il campo
-  const p1 = project(-COURT.DOUBLES_HALF_W - 1.5, 0, -COURT.BASELINE_Z - 1.5);
-  const p2 = project(COURT.DOUBLES_HALF_W + 1.5, 0, -COURT.BASELINE_Z - 1.5);
-  const p3 = project(COURT.DOUBLES_HALF_W + 1.5, 0, COURT.BASELINE_Z + 1.5);
-  const p4 = project(-COURT.DOUBLES_HALF_W - 1.5, 0, COURT.BASELINE_Z + 1.5);
-  // outer (terra/cemento intorno)
-  ctx.fillStyle = theme.baseDark;
-  ctx.beginPath();
-  ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineTo(p3.x, p3.y); ctx.lineTo(p4.x, p4.y);
-  ctx.closePath();
-  ctx.fill();
-
-  // campo (trapezio doubles)
-  const c1 = project(-COURT.DOUBLES_HALF_W, 0, -COURT.BASELINE_Z);
-  const c2 = project(COURT.DOUBLES_HALF_W, 0, -COURT.BASELINE_Z);
-  const c3 = project(COURT.DOUBLES_HALF_W, 0, COURT.BASELINE_Z);
-  const c4 = project(-COURT.DOUBLES_HALF_W, 0, COURT.BASELINE_Z);
-
-  ctx.fillStyle = theme.base;
-  ctx.beginPath();
-  ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y);
-  ctx.closePath();
-  ctx.fill();
-
-  // strisce erba
-  if (serverState && serverState.court === 'grass') {
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(c1.x, c1.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(c3.x, c3.y); ctx.lineTo(c4.x, c4.y);
-    ctx.closePath(); ctx.clip();
-    const N = 16;
-    for (let i = 0; i < N; i++) {
-      const z0 = -COURT.BASELINE_Z + (2 * COURT.BASELINE_Z) * (i / N);
-      const z1 = -COURT.BASELINE_Z + (2 * COURT.BASELINE_Z) * ((i + 1) / N);
-      const a1 = project(-COURT.DOUBLES_HALF_W, 0, z0);
-      const a2 = project(COURT.DOUBLES_HALF_W, 0, z0);
-      const a3 = project(COURT.DOUBLES_HALF_W, 0, z1);
-      const a4 = project(-COURT.DOUBLES_HALF_W, 0, z1);
-      ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
-      ctx.beginPath(); ctx.moveTo(a1.x, a1.y); ctx.lineTo(a2.x, a2.y); ctx.lineTo(a3.x, a3.y); ctx.lineTo(a4.x, a4.y); ctx.closePath(); ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  // marks (segni di rimbalzo) — disegna prima delle linee così sono "nel campo"
-  drawMarks(theme);
-
-  // linee campo
-  ctx.strokeStyle = theme.line;
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  ctx.lineWidth = Math.max(1.2, view.cam.nearScale * 0.04);
-  // doubles
-  line3D(-COURT.DOUBLES_HALF_W, -COURT.BASELINE_Z, COURT.DOUBLES_HALF_W, -COURT.BASELINE_Z);
-  line3D(-COURT.DOUBLES_HALF_W, COURT.BASELINE_Z, COURT.DOUBLES_HALF_W, COURT.BASELINE_Z);
-  line3D(-COURT.DOUBLES_HALF_W, -COURT.BASELINE_Z, -COURT.DOUBLES_HALF_W, COURT.BASELINE_Z);
-  line3D(COURT.DOUBLES_HALF_W, -COURT.BASELINE_Z, COURT.DOUBLES_HALF_W, COURT.BASELINE_Z);
-  // singles
-  line3D(-COURT.SINGLES_HALF_W, -COURT.BASELINE_Z, -COURT.SINGLES_HALF_W, COURT.BASELINE_Z);
-  line3D(COURT.SINGLES_HALF_W, -COURT.BASELINE_Z, COURT.SINGLES_HALF_W, COURT.BASELINE_Z);
-  // service lines
-  line3D(-COURT.SINGLES_HALF_W, -COURT.SERVICE_Z, COURT.SINGLES_HALF_W, -COURT.SERVICE_Z);
-  line3D(-COURT.SINGLES_HALF_W, COURT.SERVICE_Z, COURT.SINGLES_HALF_W, COURT.SERVICE_Z);
-  // center service line
-  line3D(0, -COURT.SERVICE_Z, 0, COURT.SERVICE_Z);
-  // center marks at baselines
-  line3D(0, -COURT.BASELINE_Z, 0, -COURT.BASELINE_Z + 0.3);
-  line3D(0, COURT.BASELINE_Z, 0, COURT.BASELINE_Z - 0.3);
-
-  // evidenzia area servizio valida (box diagonale) durante la fase di servizio
-  if (serverState && serverState.phase === 'serving' && serverState.serveBox) {
-    const box = serverState.serveBox;
-    {
-      // box: x in [0, xSign*SINGLES_HALF_W], z in [0, zSign*SERVICE_Z]
-      const x0 = 0, x1 = box.xSign * COURT.SINGLES_HALF_W;
-      const z0 = 0, z1 = box.zSign * COURT.SERVICE_Z;
-      const ax = Math.min(x0, x1), bx = Math.max(x0, x1);
-      const az = Math.min(z0, z1), bz = Math.max(z0, z1);
-      const q1 = project(ax, 0, az);
-      const q2 = project(bx, 0, az);
-      const q3 = project(bx, 0, bz);
-      const q4 = project(ax, 0, bz);
-      ctx.save();
-      ctx.fillStyle = 'rgba(6, 214, 160, 0.18)';
-      ctx.beginPath(); ctx.moveTo(q1.x, q1.y); ctx.lineTo(q2.x, q2.y); ctx.lineTo(q3.x, q3.y); ctx.lineTo(q4.x, q4.y); ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#06d6a0';
-      ctx.lineWidth = 2; ctx.setLineDash([6, 4]); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-    }
+let selectedCourt = 'hard';
+function renderCourtCards() {
+  const root = document.getElementById('courts');
+  root.innerHTML = '';
+  for (const key of ['clay', 'grass', 'hard']) {
+    const t = COURT_THEMES[key];
+    const div = document.createElement('div');
+    div.className = 'court-card' + (selectedCourt === key ? ' sel' : '');
+    div.innerHTML = `
+      <div class="court-thumb"><canvas width="200" height="125"></canvas></div>
+      <div class="court-name">${t.name}</div>
+      <div class="court-desc">${t.desc}</div>
+    `;
+    div.onclick = () => { selectedCourt = key; renderCourtCards(); socket.emit('setCourt', { court: key }); };
+    root.appendChild(div);
+    const tctx = div.querySelector('canvas').getContext('2d');
+    drawCourtThumb(tctx, key, 200, 125);
   }
 }
-
-function line3D(x1, z1, x2, z2) {
-  const a = project(x1, 0, z1);
-  const b = project(x2, 0, z2);
-  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+function drawCourtThumb(c, key, w, h) {
+  const t = COURT_THEMES[key];
+  c.fillStyle = t.apron; c.fillRect(0, 0, w, h);
+  c.fillStyle = t.base;
+  c.beginPath();
+  c.moveTo(w * 0.05, h * 0.92); c.lineTo(w * 0.95, h * 0.92);
+  c.lineTo(w * 0.78, h * 0.22); c.lineTo(w * 0.22, h * 0.22); c.closePath(); c.fill();
+  c.strokeStyle = t.line; c.lineWidth = 1.5;
+  c.beginPath();
+  c.moveTo(w * 0.05, h * 0.92); c.lineTo(w * 0.95, h * 0.92);
+  c.lineTo(w * 0.78, h * 0.22); c.lineTo(w * 0.22, h * 0.22); c.closePath();
+  c.moveTo(w * 0.14, h * 0.57); c.lineTo(w * 0.86, h * 0.57);
+  c.stroke();
 }
+renderCourtCards();
 
-function drawMarks(theme) {
-  const now = performance.now();
-  ctx.save();
-  for (const m of localMarks) {
-    const age = (now - m.t) / 1000;
-    if (age > 12) continue;
-    const a = Math.max(0, 1 - age / 12);
-    const p = project(m.x, 0, m.z);
-    const r = 5 * (p.s / view.cam.nearScale);
-    ctx.globalAlpha = 0.55 * a;
-    ctx.fillStyle = theme === COURT_THEMES.clay ? '#5a2412' : 'rgba(0,0,0,0.6)';
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y, r * 1.4, r * 0.7, 0, 0, Math.PI * 2);
-    ctx.fill();
+document.getElementById('enterBtn').onclick = () => {
+  const name = (document.getElementById('nameIn').value || '').trim();
+  unlockAudio();
+  socket.emit('join', { name, court: selectedCourt });
+};
+document.getElementById('nameIn').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('enterBtn').click();
+});
+
+// =========================================================================
+// Input: joystick + pulsanti colpo + servizio + emote
+// =========================================================================
+let joy = { x: 0, y: 0, active: false };
+const nip = nipplejs.create({
+  zone: document.getElementById('joy'),
+  mode: 'static',
+  position: { left: '50%', top: '50%' },
+  color: '#ffd166',
+  size: 150,
+  threshold: 0.1,
+  restOpacity: 0.55,
+});
+nip.on('move', (_, data) => {
+  if (!data || !data.vector) return;
+  joy.x = data.vector.x;
+  joy.y = data.vector.y;
+  joy.active = true;
+});
+nip.on('end', () => { joy.x = 0; joy.y = 0; joy.active = false; });
+
+let lastInputSent = { mx: 0, mz: 0 };
+setInterval(() => {
+  const flip = (myTeam === 'B') ? -1 : 1;
+  const mx = joy.x * flip;
+  const mz = joy.y * flip;
+  if (Math.abs(mx - lastInputSent.mx) > 0.04 || Math.abs(mz - lastInputSent.mz) > 0.04
+      || (mx === 0 && mz === 0 && (lastInputSent.mx !== 0 || lastInputSent.mz !== 0))) {
+    socket.emit('input', { mx, mz });
+    lastInputSent = { mx, mz };
   }
-  ctx.globalAlpha = 1;
-  ctx.restore();
+}, 1000 / 30);
+
+let charging = null; // {shot, startT}
+let chargeTickTimer = null;
+const shotEls = document.querySelectorAll('.sb');
+const shotElByName = {};
+shotEls.forEach((el) => { shotElByName[el.dataset.shot] = el; });
+
+function endShotCharge(emit) {
+  if (!charging) return;
+  const cur = charging;
+  charging = null;
+  if (chargeTickTimer) { clearInterval(chargeTickTimer); chargeTickTimer = null; }
+  const el = shotElByName[cur.shot];
+  if (el) el.classList.remove('held');
+  if (!emit) return;
+  const charge = Math.min(1.5, (performance.now() - cur.startT) / 1000);
+  const flip = (myTeam === 'B') ? -1 : 1;
+  const angle = { x: joy.x * flip, y: joy.y * flip };
+  const useSuper = serverState && serverState.energy && serverState.energy[myTeam] >= 1.0;
+  socket.emit('shot', { shot: cur.shot, charge, angle, useSuper });
 }
+shotEls.forEach((el) => {
+  const shot = el.dataset.shot;
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (charging) endShotCharge(false);
+    charging = { shot, startT: performance.now() };
+    el.classList.add('held');
+    socket.emit('chargeStart', {});
+    if (chargeTickTimer) clearInterval(chargeTickTimer);
+    chargeTickTimer = setInterval(() => {
+      if (!charging) return;
+      const t = Math.min(1.5, (performance.now() - charging.startT) / 1000);
+      socket.emit('chargeTick', { t });
+    }, 100);
+  });
+});
+window.addEventListener('pointerup', () => endShotCharge(true));
+window.addEventListener('pointercancel', () => endShotCharge(true));
 
-function drawNet() {
-  // pali
-  const hw = COURT.DOUBLES_HALF_W + COURT.NET_OVERHANG;
-  const postL_bot = project(-hw, 0, 0);
-  const postL_top = project(-hw, COURT.NET_H_POST, 0);
-  const postR_bot = project(hw, 0, 0);
-  const postR_top = project(hw, COURT.NET_H_POST, 0);
-  // pannello rete (gradiente di altezza tra pali e centro)
-  // approssimazione: due triangoli rete da pali al centro
-  const cBot = project(0, 0, 0);
-  const cTop = project(0, COURT.NET_H_CENTER, 0);
+document.querySelectorAll('.emote').forEach((el) => {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    socket.emit('emote', { key: el.dataset.key });
+  });
+});
 
-  // disegna mesh rete: tratteggio fitto
-  ctx.save();
-  // band superiore (white)
-  ctx.beginPath();
-  ctx.moveTo(postL_top.x, postL_top.y - 2);
-  ctx.lineTo(cTop.x, cTop.y - 2);
-  ctx.lineTo(postR_top.x, postR_top.y - 2);
-  ctx.lineTo(postR_top.x, postR_top.y + 2);
-  ctx.lineTo(cTop.x, cTop.y + 2);
-  ctx.lineTo(postL_top.x, postL_top.y + 2);
-  ctx.closePath();
-  ctx.fillStyle = '#fff';
-  ctx.fill();
+// Servizio: tipo + carica
+let serveType = 'flat';
+let serveCharging = null;
+let serveChargeTimer = null;
+const serveGo = document.getElementById('serveGo');
+const servePowerFill = document.getElementById('servePowerFill');
+document.querySelectorAll('.serve-type').forEach((el) => {
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.serve-type').forEach(t => t.classList.remove('sel'));
+    el.classList.add('sel');
+    serveType = el.dataset.serve;
+  });
+});
+function resetServeCharge() {
+  serveCharging = null;
+  if (serveChargeTimer) { clearInterval(serveChargeTimer); serveChargeTimer = null; }
+  serveGo.classList.remove('held');
+  serveGo.textContent = 'TIENI PER CARICARE';
+  servePowerFill.style.width = '0%';
+}
+function serveDown(e) {
+  e.preventDefault();
+  if (serveCharging) resetServeCharge();
+  serveCharging = { startT: performance.now() };
+  serveGo.classList.add('held');
+  serveGo.textContent = 'RILASCIA PER SERVIRE';
+  socket.emit('chargeStart', {});
+  if (serveChargeTimer) clearInterval(serveChargeTimer);
+  serveChargeTimer = setInterval(() => {
+    if (!serveCharging) return;
+    const t = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
+    servePowerFill.style.width = Math.min(100, (t / 1.5) * 100) + '%';
+    socket.emit('chargeTick', { t });
+  }, 40);
+}
+function serveUp(e) {
+  if (!serveCharging) return;
+  e && e.preventDefault();
+  const charge = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
+  resetServeCharge();
+  const flip = (myTeam === 'B') ? -1 : 1;
+  const angle = { x: joy.x * flip, y: joy.y * flip };
+  socket.emit('shot', { shot: 'serve', charge, angle, serveType });
+}
+serveGo.addEventListener('pointerdown', serveDown);
+window.addEventListener('pointerup', serveUp);
+window.addEventListener('pointercancel', serveUp);
 
-  // rete pannello semi-trasparente
-  ctx.beginPath();
-  ctx.moveTo(postL_bot.x, postL_bot.y);
-  ctx.lineTo(postL_top.x, postL_top.y);
-  ctx.lineTo(cTop.x, cTop.y);
-  ctx.lineTo(postR_top.x, postR_top.y);
-  ctx.lineTo(postR_bot.x, postR_bot.y);
-  ctx.closePath();
-  ctx.fillStyle = 'rgba(20, 28, 50, 0.55)';
-  ctx.fill();
-
-  // griglia rete
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.lineWidth = 1;
-  const nCols = 36;
-  for (let i = 0; i <= nCols; i++) {
-    const u = i / nCols;
-    const xw = -hw + (2 * hw) * u;
-    const sagH = COURT.NET_H_CENTER + (COURT.NET_H_POST - COURT.NET_H_CENTER) * (2 * Math.abs(u - 0.5));
-    const top = project(xw, sagH, 0);
-    const bot = project(xw, 0, 0);
-    ctx.beginPath(); ctx.moveTo(top.x, top.y); ctx.lineTo(bot.x, bot.y); ctx.stroke();
+// =========================================================================
+// Audio: effetti sintetizzati (nessun asset), sbloccati al primo tocco
+// =========================================================================
+let actx = null;
+function unlockAudio() {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+  } catch (e) { /* niente audio */ }
+}
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+function sfxPock(power) {
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(220 + power * 80, t);
+  o.frequency.exponentialRampToValueAtTime(70, t + 0.07);
+  g.gain.setValueAtTime(0.25 + power * 0.2, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+  o.connect(g).connect(actx.destination);
+  o.start(t); o.stop(t + 0.1);
+  // crack di impatto
+  const buf = actx.createBuffer(1, actx.sampleRate * 0.04, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const n = actx.createBufferSource(); n.buffer = buf;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 0.8;
+  const ng = actx.createGain(); ng.gain.value = 0.16 + power * 0.12;
+  n.connect(bp).connect(ng).connect(actx.destination);
+  n.start(t);
+}
+function sfxBounce() {
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const o = actx.createOscillator();
+  const g = actx.createGain();
+  o.type = 'sine';
+  o.frequency.setValueAtTime(140, t);
+  o.frequency.exponentialRampToValueAtTime(60, t + 0.05);
+  g.gain.setValueAtTime(0.12, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  o.connect(g).connect(actx.destination);
+  o.start(t); o.stop(t + 0.07);
+}
+function sfxApplause(dur = 1.1) {
+  if (!actx || actx.state !== 'running') return;
+  const t = actx.currentTime;
+  const buf = actx.createBuffer(1, actx.sampleRate * dur, actx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    const k = i / d.length;
+    d[i] = (Math.random() * 2 - 1) * (Math.random() < 0.22 ? 1 : 0.28) * (k < 0.12 ? k / 0.12 : 1 - (k - 0.12) / 0.88);
   }
-  const nRows = 8;
-  for (let j = 1; j < nRows; j++) {
-    ctx.beginPath();
-    for (let i = 0; i <= nCols; i++) {
-      const u = i / nCols;
-      const xw = -hw + (2 * hw) * u;
-      const sagH = COURT.NET_H_CENTER + (COURT.NET_H_POST - COURT.NET_H_CENTER) * (2 * Math.abs(u - 0.5));
-      const y = sagH * (1 - j / nRows);
-      const p = project(xw, y, 0);
-      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y);
-    }
-    ctx.stroke();
-  }
-
-  // pali
-  ctx.strokeStyle = '#cfd6e1';
-  ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(postL_bot.x, postL_bot.y); ctx.lineTo(postL_top.x, postL_top.y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(postR_bot.x, postR_bot.y); ctx.lineTo(postR_top.x, postR_top.y); ctx.stroke();
-
-  ctx.restore();
+  const n = actx.createBufferSource(); n.buffer = buf;
+  const bp = actx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 0.5;
+  const g = actx.createGain(); g.gain.value = 0.20;
+  n.connect(bp).connect(g).connect(actx.destination);
+  n.start(t);
 }
 
 // =========================================================================
-// Stato animazione per-giocatore (interpolato lato client per fluidità)
+// THREE.js: renderer, scena, camera, luci
 // =========================================================================
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('cv'), antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070f);
+scene.fog = new THREE.Fog(0x05070f, 34, 95);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 220);
+const camPos = new THREE.Vector3(0, 7.2, -(COURT.BASELINE_Z + 8.2));
+const camLook = new THREE.Vector3(0, 0.4, 3);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 100));
+resize();
+
+// luci stadio notturno
+scene.add(new THREE.HemisphereLight(0x9db4dd, 0x1a1410, 0.68));
+const keyLight = new THREE.DirectionalLight(0xfff3df, 1.9);
+keyLight.position.set(9, 22, -12);
+keyLight.castShadow = true;
+// shadow map più leggera sui dispositivi piccoli/mobile
+const shadowRes = Math.min(window.screen.width, window.screen.height) < 900 ? 1024 : 2048;
+keyLight.shadow.mapSize.set(shadowRes, shadowRes);
+keyLight.shadow.camera.left = -16; keyLight.shadow.camera.right = 16;
+keyLight.shadow.camera.top = 20; keyLight.shadow.camera.bottom = -20;
+keyLight.shadow.camera.near = 4; keyLight.shadow.camera.far = 60;
+keyLight.shadow.bias = -0.0004;
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xbcd0ff, 0.65);
+fillLight.position.set(-10, 16, 14);
+scene.add(fillLight);
+
+// =========================================================================
+// Texture procedurali
+// =========================================================================
+function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+
+// Campo: 18m (x) × 30m (z) → canvas 1024×1707, linee bianche disegnate a misura reale
+function makeCourtTexture(key) {
+  const t = COURT_THEMES[key];
+  const W = 1024, H = Math.round(W * 30 / 18);
+  const c = makeCanvas(W, H);
+  const g = c.getContext('2d');
+  const px = W / 18; // pixel per metro
+  const X = (m) => W / 2 + m * px;
+  const Z = (m) => H / 2 + m * px;
+
+  // fondo esterno (run-off)
+  g.fillStyle = t.baseDark;
+  g.fillRect(0, 0, W, H);
+  // zona di gioco interna (rettangolo doppio + margine)
+  g.fillStyle = t.base;
+  g.fillRect(X(-COURT.DOUBLES_HALF_W), Z(-COURT.BASELINE_Z), (COURT.DOUBLES_HALF_W * 2) * px, (COURT.BASELINE_Z * 2) * px);
+
+  // caratterizzazione superficie
+  if (key === 'grass') {
+    g.globalAlpha = 0.10;
+    for (let i = 0; i < 20; i++) {
+      if (i % 2) continue;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, (i / 20) * H, W, H / 20);
+    }
+    g.globalAlpha = 1;
+  }
+  // grana / usura
+  for (let i = 0; i < 9000; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.04)';
+    g.fillRect(Math.random() * W, Math.random() * H, 1.6, 1.6);
+  }
+  if (key === 'clay') {
+    // strisciate di terra
+    g.strokeStyle = 'rgba(0,0,0,0.06)';
+    for (let i = 0; i < 40; i++) {
+      g.lineWidth = 2 + Math.random() * 5;
+      g.beginPath();
+      const x0 = Math.random() * W, y0 = Math.random() * H;
+      g.moveTo(x0, y0);
+      g.lineTo(x0 + (Math.random() - 0.5) * 130, y0 + (Math.random() - 0.5) * 60);
+      g.stroke();
+    }
+  }
+
+  // linee ufficiali
+  g.strokeStyle = t.line;
+  g.fillStyle = t.line;
+  const lw = Math.max(2, 0.05 * px);
+  g.lineWidth = lw;
+  const dx = COURT.DOUBLES_HALF_W, sx = COURT.SINGLES_HALF_W, bz = COURT.BASELINE_Z, sz = COURT.SERVICE_Z;
+  // perimetro doppio
+  g.strokeRect(X(-dx), Z(-bz), dx * 2 * px, bz * 2 * px);
+  // righe singolo
+  g.beginPath();
+  g.moveTo(X(-sx), Z(-bz)); g.lineTo(X(-sx), Z(bz));
+  g.moveTo(X(sx), Z(-bz)); g.lineTo(X(sx), Z(bz));
+  // righe servizio
+  g.moveTo(X(-sx), Z(-sz)); g.lineTo(X(sx), Z(-sz));
+  g.moveTo(X(-sx), Z(sz)); g.lineTo(X(sx), Z(sz));
+  // riga centrale servizio
+  g.moveTo(X(0), Z(-sz)); g.lineTo(X(0), Z(sz));
+  g.stroke();
+  // baseline più spesse + segno centrale
+  g.lineWidth = lw * 1.8;
+  g.beginPath();
+  g.moveTo(X(-dx), Z(-bz)); g.lineTo(X(dx), Z(-bz));
+  g.moveTo(X(-dx), Z(bz)); g.lineTo(X(dx), Z(bz));
+  g.stroke();
+  g.fillRect(X(0) - lw / 2, Z(-bz), lw, 0.18 * px);
+  g.fillRect(X(0) - lw / 2, Z(bz) - 0.18 * px, lw, 0.18 * px);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  return tex;
+}
+
+// Rete: trama a maglie + banda bianca superiore (alpha)
+function makeNetTexture() {
+  const c = makeCanvas(512, 96);
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, 512, 96);
+  g.strokeStyle = 'rgba(20,24,30,0.95)';
+  g.lineWidth = 1.6;
+  for (let x = 0; x <= 512; x += 7) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 96); g.stroke(); }
+  for (let y = 0; y <= 96; y += 7) { g.beginPath(); g.moveTo(0, y); g.lineTo(512, y); g.stroke(); }
+  g.fillStyle = 'rgba(245,247,250,0.98)';
+  g.fillRect(0, 0, 512, 9);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.repeat.set(3, 1);
+  return tex;
+}
+
+// Tabelloni pubblicitari
+function makeBoardTexture(text) {
+  const c = makeCanvas(1024, 88);
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 88);
+  grad.addColorStop(0, '#101a30'); grad.addColorStop(1, '#0a1322');
+  g.fillStyle = grad; g.fillRect(0, 0, 1024, 88);
+  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 3;
+  g.strokeRect(2, 2, 1020, 84);
+  g.fillStyle = 'rgba(255,255,255,0.78)';
+  g.font = '900 44px -apple-system, Arial';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text, 512, 47);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Folla sugli spalti: puntini colorati su gradinata scura
+function makeCrowdTexture() {
+  const c = makeCanvas(512, 128);
+  const g = c.getContext('2d');
+  g.fillStyle = '#0d1526'; g.fillRect(0, 0, 512, 128);
+  const cols = ['#8b95a8', '#c0a080', '#7286a8', '#a87878', '#d8c8a8', '#6878a0', '#90b090'];
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = cols[(Math.random() * cols.length) | 0];
+    g.globalAlpha = 0.35 + Math.random() * 0.5;
+    const x = Math.random() * 512, y = Math.random() * 128;
+    g.beginPath(); g.arc(x, y, 1.6 + Math.random() * 1.4, 0, 7); g.fill();
+  }
+  g.globalAlpha = 1;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
+}
+
+// puntino tondo per Points (particelle e scie)
+function makeDotTexture() {
+  const c = makeCanvas(32, 32);
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(16, 16, 2, 16, 16, 15);
+  rg.addColorStop(0, 'rgba(255,255,255,1)');
+  rg.addColorStop(0.7, 'rgba(255,255,255,0.85)');
+  rg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 32, 32);
+  return new THREE.CanvasTexture(c);
+}
+const dotTex = makeDotTexture();
+
+// Sprite alone luminoso (fari)
+function makeGlowTexture() {
+  const c = makeCanvas(128, 128);
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(64, 64, 4, 64, 64, 64);
+  rg.addColorStop(0, 'rgba(255,250,235,0.9)');
+  rg.addColorStop(0.35, 'rgba(255,244,214,0.28)');
+  rg.addColorStop(1, 'rgba(255,244,214,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
+// Targhetta nome + barra stamina (billboard sopra la testa)
+function makeNameSprite() {
+  const c = makeCanvas(256, 72);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
+  const spr = new THREE.Sprite(mat);
+  spr.scale.set(1.5, 0.42, 1);
+  spr.userData = { c, tex, key: '' };
+  return spr;
+}
+function updateNameSprite(spr, name, color, isMe, stamina, emote) {
+  const stQ = Math.round(stamina * 10) / 10;
+  const key = `${name}|${color}|${isMe}|${stQ}|${emote || ''}`;
+  if (spr.userData.key === key) return;
+  spr.userData.key = key;
+  const g = spr.userData.c.getContext('2d');
+  g.clearRect(0, 0, 256, 72);
+  if (emote) {
+    g.fillStyle = 'rgba(255,255,255,0.96)';
+    g.beginPath(); g.roundRect(48, 0, 160, 34, 12); g.fill();
+    g.fillStyle = '#222';
+    g.font = '900 22px -apple-system, Arial';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(emote, 128, 18);
+  }
+  g.font = '800 22px -apple-system, Arial';
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = 'rgba(0,0,0,0.9)'; g.shadowBlur = 6;
+  g.fillStyle = isMe ? '#ffd166' : '#ffffff';
+  g.fillText(name || '·', 128, 46);
+  g.shadowBlur = 0;
+  // stamina
+  g.fillStyle = 'rgba(0,0,0,0.6)';
+  g.fillRect(78, 60, 100, 7);
+  g.fillStyle = stamina > 0.6 ? '#06d6a0' : stamina > 0.3 ? '#ffd166' : '#ff5050';
+  g.fillRect(79, 61, 98 * Math.max(0, Math.min(1, stamina)), 5);
+  spr.userData.tex.needsUpdate = true;
+}
+
+// =========================================================================
+// Costruzione stadio
+// =========================================================================
+const world = new THREE.Group();
+scene.add(world);
+
+let courtMesh = null, builtCourtKey = null, apronMesh = null;
+function rebuildCourt(key) {
+  builtCourtKey = key;
+  const theme = COURT_THEMES[key] || COURT_THEMES.hard;
+  if (courtMesh) {
+    courtMesh.material.map.dispose();
+    courtMesh.material.map = makeCourtTexture(key);
+    courtMesh.material.needsUpdate = true;
+  } else {
+    courtMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(18, 30),
+      new THREE.MeshStandardMaterial({ map: makeCourtTexture(key), roughness: 0.94, metalness: 0 })
+    );
+    courtMesh.rotation.x = -Math.PI / 2;
+    courtMesh.receiveShadow = true;
+    world.add(courtMesh);
+  }
+  if (apronMesh) apronMesh.material.color.set(theme.apron);
+}
+
+// pavimento circostante
+apronMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(140, 140),
+  new THREE.MeshStandardMaterial({ color: COURT_THEMES.hard.apron, roughness: 1 })
+);
+apronMesh.rotation.x = -Math.PI / 2;
+apronMesh.position.y = -0.012;
+apronMesh.receiveShadow = true;
+world.add(apronMesh);
+rebuildCourt('hard');
+
+// rete + pali + banda
+{
+  const halfW = COURT.DOUBLES_HALF_W + COURT.NET_OVERHANG;
+  const netGeo = new THREE.PlaneGeometry(halfW * 2, 1, 24, 1);
+  // abbassa il bordo superiore al centro (0.91m) rispetto ai pali (1.07m)
+  const pos = netGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const k = Math.abs(x) / halfW;
+    const topH = COURT.NET_H_CENTER + (COURT.NET_H_POST - COURT.NET_H_CENTER) * k * k;
+    if (pos.getY(i) > 0) pos.setY(i, topH);
+    else pos.setY(i, 0.02);
+  }
+  netGeo.computeVertexNormals();
+  const net = new THREE.Mesh(netGeo, new THREE.MeshStandardMaterial({
+    map: makeNetTexture(), transparent: true, alphaTest: 0.06, side: THREE.DoubleSide, roughness: 0.9,
+  }));
+  world.add(net);
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x2a2f38, roughness: 0.5, metalness: 0.5 });
+  for (const sx of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, COURT.NET_H_POST, 10), postMat);
+    post.position.set(sx * halfW, COURT.NET_H_POST / 2, 0);
+    post.castShadow = true;
+    world.add(post);
+  }
+}
+
+// tabelloni pubblicitari + spalti + fari
+{
+  const boardTex = makeBoardTexture('· TENNIS ARENA ·');
+  const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.8, emissive: 0x223044, emissiveIntensity: 0.35 });
+  const mkBoard = (w) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.95, 0.14), boardMat);
+    m.castShadow = true;
+    return m;
+  };
+  for (const sz of [-1, 1]) {
+    const b = mkBoard(24);
+    b.position.set(0, 0.48, sz * 16.6);
+    world.add(b);
+  }
+  for (const sx of [-1, 1]) {
+    const b = mkBoard(30);
+    b.rotation.y = Math.PI / 2;
+    b.position.set(sx * 11.6, 0.48, 0);
+    world.add(b);
+  }
+
+  const crowdTex = makeCrowdTexture();
+  const standMat = new THREE.MeshStandardMaterial({ map: crowdTex, roughness: 1, emissive: 0x4a5878, emissiveMap: crowdTex, emissiveIntensity: 0.5 });
+  const standFrame = new THREE.MeshStandardMaterial({ color: 0x0a0f1c, roughness: 1 });
+  for (const sz of [-1, 1]) {
+    for (let i = 0; i < 5; i++) {
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(40, 1.5, 2.4), i % 2 === 0 ? standMat : standMat);
+      stand.position.set(0, 1.1 + i * 1.35, sz * (19.5 + i * 2.3));
+      world.add(stand);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(40, 1.1 + i * 1.35, 2.4), standFrame);
+      base.position.set(0, (1.1 + i * 1.35) / 2 - 0.4, sz * (19.5 + i * 2.3));
+      world.add(base);
+    }
+  }
+  for (const sx of [-1, 1]) {
+    for (let i = 0; i < 4; i++) {
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.5, 34), standMat);
+      stand.position.set(sx * (14.5 + i * 2.3), 1.0 + i * 1.3, 0);
+      world.add(stand);
+    }
+  }
+
+  // fari agli angoli
+  const glowTex = makeGlowTexture();
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x222a36, roughness: 0.6, metalness: 0.4 });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xeef4ff, emissive: 0xffffff, emissiveIntensity: 1.6 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 13, 8), poleMat);
+    pole.position.set(sx * 13.5, 6.5, sz * 18);
+    world.add(pole);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.85, 0.25), headMat);
+    head.position.set(sx * 13.5, 12.6, sz * 18);
+    head.lookAt(0, 0, 0);
+    world.add(head);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    glow.material.fog = false;
+    glow.scale.set(7, 7, 1);
+    glow.position.set(sx * 13.5, 12.7, sz * 18);
+    world.add(glow);
+  }
+}
+
+// =========================================================================
+// Giocatori 3D: figura articolata low-poly
+// =========================================================================
+const SKIN = 0xd9a06e, HAIR = 0x2a1a10, SHORTS = 0x1d2330, SHOE = 0xf2f2f2;
+
+function capsule(r, len, mat) {
+  const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 3, 8), mat);
+  m.castShadow = true;
+  return m;
+}
+
+function buildPlayerMesh(shirtHex) {
+  const shirtMat = new THREE.MeshStandardMaterial({ color: shirtHex, roughness: 0.75 });
+  const skinMat = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.7 });
+  const shortMat = new THREE.MeshStandardMaterial({ color: SHORTS, roughness: 0.85 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: SHOE, roughness: 0.55 });
+  const hairMat = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.9 });
+
+  const root = new THREE.Group();
+  const body = new THREE.Group(); // tutto ciò che si piega/abbassa
+  root.add(body);
+
+  // bacino + torso
+  const pelvis = capsule(0.13, 0.10, shortMat); pelvis.position.y = 0.98; body.add(pelvis);
+  const torso = capsule(0.155, 0.30, shirtMat); torso.position.y = 1.28; body.add(torso);
+  // testa
+  const headG = new THREE.Group(); headG.position.y = 1.625; body.add(headG);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 12), skinMat); head.castShadow = true; headG.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.122, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat);
+  hair.position.y = 0.018; headG.add(hair);
+
+  // gambe: anca → ginocchio
+  function makeLeg(sx) {
+    const hip = new THREE.Group(); hip.position.set(sx * 0.10, 0.94, 0); body.add(hip);
+    const thigh = capsule(0.062, 0.30, shortMat); thigh.position.y = -0.19; hip.add(thigh);
+    const knee = new THREE.Group(); knee.position.y = -0.40; hip.add(knee);
+    const shin = capsule(0.052, 0.30, skinMat); shin.position.y = -0.18; knee.add(shin);
+    const foot = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.07, 0.23), shoeMat);
+    foot.castShadow = true; foot.position.set(0, -0.40, 0.05); knee.add(foot);
+    return { hip, knee };
+  }
+  const legL = makeLeg(-1), legR = makeLeg(1);
+
+  // braccia: spalla → gomito; il braccio destro (racchetta) sta a x locale NEGATIVO
+  // (figura orientata verso +z locale: la destra anatomica è -x)
+  function makeArm(sx, withRacket) {
+    const shoulder = new THREE.Group(); shoulder.position.set(sx * 0.215, 1.455, 0); body.add(shoulder);
+    const upper = capsule(0.05, 0.20, shirtMat); upper.position.y = -0.15; shoulder.add(upper);
+    const elbow = new THREE.Group(); elbow.position.y = -0.30; shoulder.add(elbow);
+    const fore = capsule(0.043, 0.20, skinMat); fore.position.y = -0.14; elbow.add(fore);
+    let racket = null;
+    if (withRacket) {
+      racket = new THREE.Group(); racket.position.y = -0.30; elbow.add(racket);
+      const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.16, 8),
+        new THREE.MeshStandardMaterial({ color: 0x15181e, roughness: 0.8 }));
+      grip.position.y = -0.07; racket.add(grip);
+      const frameMat = new THREE.MeshStandardMaterial({ color: 0xe8ecf2, roughness: 0.4, metalness: 0.3 });
+      const hoop = new THREE.Mesh(new THREE.TorusGeometry(0.135, 0.014, 8, 22), frameMat);
+      hoop.position.y = -0.30; racket.add(hoop);
+      const strings = new THREE.Mesh(new THREE.CircleGeometry(0.125, 18),
+        new THREE.MeshBasicMaterial({ color: 0xcfd8e8, transparent: true, opacity: 0.32, side: THREE.DoubleSide }));
+      strings.position.y = -0.30; racket.add(strings);
+    }
+    return { shoulder, elbow, racket };
+  }
+  const armR = makeArm(-1, true);   // braccio racchetta
+  const armL = makeArm(1, false);   // braccio libero
+
+  // ombra morbida di contatto (oltre alla shadow map)
+  const blob = new THREE.Mesh(new THREE.CircleGeometry(0.46, 22),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.36, depthWrite: false }));
+  blob.rotation.x = -Math.PI / 2; blob.position.y = 0.012; root.add(blob);
+
+  const name = makeNameSprite();
+  name.position.y = 2.12;
+  root.add(name);
+
+  return { root, body, headG, legL, legR, armR, armL, name, blob, shirtMat };
+}
+
+// =========================================================================
+// Keyframe colpi (spalla destra a -x locale, figura verso +z locale)
+// 3 fasi: [caricamento, contatto, follow-through]; el = piega gomito;
+// body = rotazione Y del busto (coil → apertura)
+// =========================================================================
+const SHOT_KEYS = {
+  drive: {
+    // follow-through che chiude alto sopra la spalla OPPOSTA (rz cambia segno)
+    fh: [{ rx: -0.50, ry: -1.05, rz: -1.05, el: 1.30 }, { rx: 0.45, ry: 0.15, rz: -1.15, el: 0.25 }, { rx: 1.35, ry: 1.15, rz: 0.55, el: 1.05 }],
+    bh: [{ rx: -0.40, ry: 1.10, rz: 0.55, el: 1.60 }, { rx: 0.45, ry: -0.10, rz: 0.95, el: 0.35 }, { rx: 1.25, ry: -1.05, rz: -0.50, el: 0.75 }],
+    body: [0.85, 0.10, -0.55],
+  },
+  slice: {
+    fh: [{ rx: -0.95, ry: -0.75, rz: -0.95, el: 1.10 }, { rx: 0.40, ry: 0.10, rz: -1.05, el: 0.30 }, { rx: 0.95, ry: 0.65, rz: -0.55, el: 0.50 }],
+    bh: [{ rx: -0.85, ry: 0.80, rz: 0.55, el: 1.30 }, { rx: 0.40, ry: -0.05, rz: 0.90, el: 0.35 }, { rx: 0.85, ry: -0.60, rz: 0.45, el: 0.50 }],
+    body: [0.65, 0.10, -0.40],
+  },
+  lob: {
+    fh: [{ rx: 0.15, ry: -0.60, rz: -0.75, el: 1.10 }, { rx: 0.70, ry: 0.05, rz: -0.90, el: 0.30 }, { rx: 2.05, ry: 0.70, rz: -0.35, el: 0.50 }],
+    bh: [{ rx: 0.15, ry: 0.65, rz: 0.45, el: 1.20 }, { rx: 0.70, ry: 0.00, rz: 0.75, el: 0.35 }, { rx: 1.95, ry: -0.65, rz: 0.30, el: 0.50 }],
+    body: [0.50, 0.10, -0.30],
+  },
+  drop: {
+    fh: [{ rx: -0.35, ry: -0.45, rz: -0.85, el: 1.00 }, { rx: 0.30, ry: 0.05, rz: -0.95, el: 0.45 }, { rx: 0.55, ry: 0.35, rz: -0.75, el: 0.55 }],
+    bh: [{ rx: -0.30, ry: 0.50, rz: 0.50, el: 1.10 }, { rx: 0.30, ry: 0.00, rz: 0.80, el: 0.50 }, { rx: 0.50, ry: -0.35, rz: 0.60, el: 0.55 }],
+    body: [0.40, 0.05, -0.20],
+  },
+  volley: {
+    fh: [{ rx: -0.15, ry: -0.35, rz: -0.95, el: 0.85 }, { rx: 0.50, ry: 0.10, rz: -1.00, el: 0.35 }, { rx: 0.70, ry: 0.30, rz: -0.85, el: 0.45 }],
+    bh: [{ rx: -0.15, ry: 0.40, rz: 0.55, el: 0.95 }, { rx: 0.50, ry: -0.05, rz: 0.85, el: 0.40 }, { rx: 0.65, ry: -0.30, rz: 0.65, el: 0.45 }],
+    body: [0.30, 0.05, -0.15],
+  },
+  smash: {
+    fh: [{ rx: -2.40, ry: 0.15, rz: -0.35, el: 1.80 }, { rx: -3.05, ry: 0.05, rz: -0.12, el: 0.10 }, { rx: -4.30, ry: -0.10, rz: 0.10, el: 0.55 }],
+    bh: [{ rx: -2.40, ry: 0.15, rz: -0.35, el: 1.80 }, { rx: -3.05, ry: 0.05, rz: -0.12, el: 0.10 }, { rx: -4.30, ry: -0.10, rz: 0.10, el: 0.55 }],
+    body: [0.35, 0.05, -0.25],
+  },
+  serve: {
+    fh: [{ rx: -2.30, ry: 0.20, rz: -0.40, el: 1.90 }, { rx: -3.10, ry: 0.05, rz: -0.10, el: 0.05 }, { rx: -4.45, ry: -0.15, rz: 0.15, el: 0.60 }],
+    bh: [{ rx: -2.30, ry: 0.20, rz: -0.40, el: 1.90 }, { rx: -3.10, ry: 0.05, rz: -0.10, el: 0.05 }, { rx: -4.45, ry: -0.15, rz: 0.15, el: 0.60 }],
+    body: [0.30, 0.00, -0.20],
+  },
+};
+const IDLE_ARM = { rx: 0.10, ry: 0, rz: -0.22, el: 0.55 };
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function lerpKey(k0, k1, t) {
+  return { rx: lerp(k0.rx, k1.rx, t), ry: lerp(k0.ry, k1.ry, t), rz: lerp(k0.rz, k1.rz, t), el: lerp(k0.el, k1.el, t) };
+}
+// fase q (0..1) → key interpolata: 0→0.3 caricamento→contatto (accelera), 0.3→1 follow (decelera)
+function sampleShotKeys(keys, q) {
+  if (q < 0.30) {
+    const t = q / 0.30;
+    return lerpKey(keys[0], keys[1], t * t);
+  }
+  const t = (q - 0.30) / 0.70;
+  return lerpKey(keys[1], keys[2], 1 - (1 - t) * (1 - t));
+}
+function sampleBody(arr, q) {
+  if (q < 0.30) { const t = q / 0.30; return lerp(arr[0], arr[1], t * t); }
+  const t = (q - 0.30) / 0.70;
+  return lerp(arr[1], arr[2], 1 - (1 - t) * (1 - t));
+}
+
+// =========================================================================
+// Stato animazione per giocatore + pool mesh
+// =========================================================================
+const playerMeshes = new Map(); // id → buildPlayerMesh result
 const animStates = {};
 function getAnim(id) {
   let a = animStates[id];
   if (!a) {
     a = animStates[id] = {
-      run: Math.random() * 6, breath: Math.random() * 6, swing: 0, lean: 0, speedN: 0,
-      splitT: 0,            // split-step prima di ricevere
-      celeT: 0, dejT: 0,    // esultanza / delusione a fine punto
-      shot: 'drive',        // ultimo tipo di colpo (per la posa dello swing)
-      sideX: 1,             // lato world-x della palla all'impatto (dritto/rovescio)
+      run: Math.random() * 6, breath: Math.random() * 6, swing: 0, speedN: 0,
+      splitT: 0, celeT: 0, dejT: 0,
+      shot: 'drive', sideX: 1,
+      turn: 0, // rotazione fluida del busto
     };
   }
   return a;
 }
-function updateAnim(p, dt) {
+
+function getPlayerMesh(p) {
+  let m = playerMeshes.get(p.id);
+  if (!m) {
+    m = buildPlayerMesh(new THREE.Color(p.color || TEAM_COLOR[p.team].main));
+    playerMeshes.set(p.id, m);
+    world.add(m.root);
+  }
+  return m;
+}
+
+// anello hit-zone (solo per me) + anello sweet spot
+const hitZone = new THREE.Mesh(new THREE.RingGeometry(1, 1.06, 56),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }));
+hitZone.rotation.x = -Math.PI / 2; hitZone.position.y = 0.02; hitZone.visible = false;
+world.add(hitZone);
+const hitZoneFill = new THREE.Mesh(new THREE.CircleGeometry(1, 56),
+  new THREE.MeshBasicMaterial({ color: 0x06d6a0, transparent: true, opacity: 0.05, depthWrite: false }));
+hitZoneFill.rotation.x = -Math.PI / 2; hitZoneFill.position.y = 0.015; hitZoneFill.visible = false;
+world.add(hitZoneFill);
+const sweetZone = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.66, 40),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }));
+sweetZone.rotation.x = -Math.PI / 2; sweetZone.position.y = 0.022; sweetZone.visible = false;
+world.add(sweetZone);
+
+// anello carica colpo (visibile a tutti attorno a chi carica)
+const chargeRings = new Map();
+function getChargeRing(id) {
+  let r = chargeRings.get(id);
+  if (!r) {
+    r = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.58, 40),
+      new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+    r.rotation.x = -Math.PI / 2; r.position.y = 0.025;
+    chargeRings.set(id, r);
+    world.add(r);
+  }
+  return r;
+}
+
+// =========================================================================
+// Aggiorna il giocatore 3D dalla pose state-machine
+// =========================================================================
+function updatePlayer3D(p, dt) {
+  const m = getPlayerMesh(p);
   const a = getAnim(p.id);
-  const speed = Math.hypot(p.vx || 0, p.vz || 0);
-  const speedN = Math.min(1, speed / 5.0);
-  a.speedN += (speedN - a.speedN) * Math.min(1, dt * 10);
-  // ciclo gambe avanza proporzionalmente alla velocità reale
-  a.run += dt * (2.0 + a.speedN * 10);
-  a.breath += dt * 1.8;
-  // swing smussato verso swingT del server (transizione morbida, niente scatti)
-  a.swing += ((p.swingT || 0) - a.swing) * Math.min(1, dt * 16);
-  // orientamento verso la palla (lean orizzontale -1..1)
-  let tl = 0;
-  const b = interpState && interpState.ball;
-  if (b) tl = Math.max(-1, Math.min(1, (b.x - p.x) / 2.5));
-  a.lean += (tl - a.lean) * Math.min(1, dt * 7);
-  // decadimento timer pose
+  const ball = interpState && interpState.ball;
+
+  // timer pose
   a.splitT = Math.max(0, a.splitT - dt);
   a.celeT = Math.max(0, a.celeT - dt);
   a.dejT = Math.max(0, a.dejT - dt);
-  return a;
-}
 
-// Angolo schermo del braccio-racchetta per tipo di colpo e fase q (0=caricamento → 1=fine).
-// 3 fasi fluide: caricamento → contatto (accelerando) → follow-through (decelerando).
-// I keyframe sono per il colpo a destra dello schermo; il rovescio è specchiato.
-function shotArmAngle(shot, q, sideScreen) {
-  const PI = Math.PI;
-  const K = {
-    drive:  [0.55 * PI, -0.06 * PI, -0.85 * PI],  // dietro-basso → davanti → sopra la spalla opposta
-    volley: [-0.15 * PI, -0.02 * PI, 0.12 * PI],  // punch secco, quasi senza corsa
-    slice:  [-0.55 * PI, 0.02 * PI, 0.40 * PI],   // alto → basso, taglia la palla
-    lob:    [0.60 * PI, 0.05 * PI, -0.62 * PI],   // basso → alto, cucchiaio
-    drop:   [-0.12 * PI, 0.04 * PI, 0.20 * PI],   // tocco morbido
-    smash:  [-0.80 * PI, -0.42 * PI, -0.04 * PI], // sopra la testa → giù
-    serve:  [-0.80 * PI, -0.45 * PI, -0.02 * PI], // come lo smash, dal toss
-  };
-  const k = K[shot] || K.drive;
-  let ang;
-  if (q < 0.30) {
-    const t = q / 0.30;
-    ang = k[0] + (k[1] - k[0]) * (t * t);
-  } else {
-    const t = (q - 0.30) / 0.70;
-    ang = k[1] + (k[2] - k[1]) * (1 - (1 - t) * (1 - t));
-  }
-  return sideScreen >= 0 ? ang : Math.PI - ang;
-}
+  const speed = Math.hypot(p.vx || 0, p.vz || 0);
+  const speedN = Math.min(1, speed / 5.0);
+  a.speedN += (speedN - a.speedN) * Math.min(1, dt * 10);
+  a.run += dt * (2.2 + a.speedN * 9.5);
+  a.breath += dt * 1.8;
+  a.swing += ((p.swingT || 0) - a.swing) * Math.min(1, dt * 16);
 
-function drawHitZone(p, sp) {
-  // Cerchio sempre visibile attorno al giocatore, tre stati chiarissimi:
-  //   GRIGIO  = palla lontana
-  //   GIALLO  = palla in avvicinamento, preparati
-  //   VERDE   = colpibile ADESSO (flag canHit dal server, finestra di 0.5s inclusa)
-  const reach = (serverState && serverState.hitReach) || 4.0;
-  const perfectR = Math.max(0.35, 0.7 - (serverState.rallyCount || 0) * 0.02);
-  const canHit = !!p.canHit;
-  const b = interpState && interpState.ball;
-  const dist = b ? Math.hypot(b.x - p.x, b.z - p.z) : 999;
-  const near = !canHit && b && dist < reach * 1.9 && b.y < 6;
-  // pulsazione morbida per attirare l'occhio quando si può colpire
-  const pulse = canHit ? 0.85 + 0.15 * Math.sin(performance.now() / 90) : 1;
-  let color, fill, glow = false;
-  if (canHit) { color = `rgba(6,214,160,${0.95 * pulse})`; fill = 'rgba(6,214,160,0.22)'; glow = true; }
-  else if (near) { color = 'rgba(255,209,102,0.70)'; fill = 'rgba(255,209,102,0.10)'; }
-  else { color = 'rgba(255,255,255,0.20)'; fill = 'rgba(255,255,255,0.045)'; }
-  const rx = reach * sp.s, ry = reach * sp.s * 0.42;
-  ctx.save();
-  ctx.fillStyle = fill;
-  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
-  if (glow) { ctx.shadowColor = '#06d6a0'; ctx.shadowBlur = 18; }
-  ctx.strokeStyle = color; ctx.lineWidth = glow ? 4 : 2;
-  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
-  ctx.shadowBlur = 0;
-  // anello "sweet spot" interno (timing perfetto)
-  ctx.strokeStyle = canHit ? 'rgba(255,255,255,0.9)' : 'rgba(6,214,160,0.30)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.ellipse(sp.x, sp.y, perfectR * sp.s, perfectR * sp.s * 0.42, 0, 0, Math.PI * 2); ctx.stroke();
-  ctx.restore();
-}
-
-// Colori per tipo di colpo (scie, traiettoria, particelle)
-const SHOT_COLORS = { drive: '#ff6b6b', smash: '#ff3030', lob: '#69db7c', drop: '#ffffff', slice: '#74c0fc', serve: '#ffd166', volley: '#ffe066' };
-
-// Traiettoria prevista della palla: puntini lungo il volo + anello sul punto di
-// atterraggio. Stessa fisica del server (drag 0.024, gravità, magnus, curva slice).
-function drawPredictedPath(b) {
-  if (!b || b.held) return;
-  if (Math.hypot(b.vx || 0, b.vy || 0, b.vz || 0) < 1.5) return;
-  let x = b.x, y = b.y, z = b.z, vx = b.vx, vy = b.vy, vz = b.vz;
-  let spin = b.spin || 0, curve = b.curve || 0;
-  const dt = 1 / 60;
-  const pts = [];
-  let land = null;
-  for (let i = 0; i < 160; i++) {
-    const v = Math.hypot(vx, vy, vz);
-    vx -= vx * 0.024 * v * dt; vy -= vy * 0.024 * v * dt; vz -= vz * 0.024 * v * dt;
-    vy -= 9.8 * dt;
-    vy -= spin * 8.0 * dt;
-    if (curve) { vx += curve * 5.0 * dt; curve *= (1 - dt * 0.5); }
-    const zPrev = z;
-    x += vx * dt; y += vy * dt; z += vz * dt;
-    // si ferma sulla rete: oltre non ha senso prevedere
-    if (zPrev * z < 0 && y < COURT.NET_H_CENTER && Math.abs(x) < COURT.DOUBLES_HALF_W + 0.9) break;
-    if (y <= 0.034) { land = { x, z }; break; }
-    if (i % 6 === 5) pts.push({ x, y, z });
-  }
-  const col = SHOT_COLORS[b.type] || '#ffffff';
-  ctx.save();
-  ctx.fillStyle = col;
-  for (let i = 0; i < pts.length; i++) {
-    const q = pts[i];
-    const s = project(q.x, q.y, q.z);
-    ctx.globalAlpha = 0.14 + 0.30 * (i / Math.max(1, pts.length - 1));
-    ctx.beginPath(); ctx.arc(s.x, s.y, 3, 0, Math.PI * 2); ctx.fill();
-  }
-  if (land) {
-    const g = project(land.x, 0, land.z);
-    const k = (0.8 + 0.2 * Math.sin(performance.now() / 150)) * (g.s / view.cam.nearScale);
-    ctx.globalAlpha = 0.8;
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.ellipse(g.x, g.y, 15 * k, 6.5 * k, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.globalAlpha = 0.25;
-    ctx.beginPath(); ctx.ellipse(g.x, g.y, 7 * k, 3 * k, 0, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.restore();
-  ctx.globalAlpha = 1;
-}
-
-// Player: figura articolata con animazione interpolata
-function drawPlayer(p, dt) {
-  const a = updateAnim(p, dt);
-  const tc = TEAM_COLOR[p.team];
-  const shirt = p.color || tc.main;
-  const head = 0.32, torso = 0.55, legs = 0.85;
-  const isMe = p.id === myId;
-
-  // respiro idle + leggero abbassamento in corsa + lean verso palla
-  const idle = a.speedN < 0.12;
-  const breath = idle ? Math.sin(a.breath) * 0.025 : 0;
-  const lean = a.lean;
-  const leanX = lean * 0.18;
-  const ph = a.run;
-
-  // --- modificatori di posa ---
   const isServing = serverState && serverState.phase === 'serving' && serverState.serverId === p.id;
   const chargeN = p.charging ? Math.min(1, (p.chargeT || 0) / 1.5) : 0;
-  // split-step: saltello di preparazione quando l'avversario colpisce
+
+  // hop (split-step / esultanza) e slump (delusione)
   let hopY = 0;
   if (a.splitT > 0) hopY = Math.sin(Math.PI * (1 - a.splitT / 0.26)) * 0.10;
-  // esultanza: saltelli ritmici
-  if (a.celeT > 0) hopY = Math.abs(Math.sin((1.4 - a.celeT) * 9)) * 0.16;
-  // delusione: spalle e testa che si abbassano
-  const slump = a.dejT > 0 ? Math.min(1, (1.4 - a.dejT) * 4) * 0.16 : 0;
-  // caricamento colpo: ginocchia piegate, pronto a esplodere
-  const crouch = a.speedN * 0.06 + chargeN * 0.10 + slump;
+  if (a.celeT > 0) hopY = Math.abs(Math.sin((1.4 - a.celeT) * 9)) * 0.15;
+  const slump = a.dejT > 0 ? Math.min(1, (1.4 - a.dejT) * 4) : 0;
+  const crouch = a.speedN * 0.05 + chargeN * 0.10 + slump * 0.12;
 
-  const sp = project(p.x, 0, p.z);
-  const sc = sp.s / view.cam.nearScale;
+  // root: posizione + orientamento base verso la rete
+  m.root.position.set(p.x, hopY, p.z);
+  const faceY = p.team === 'A' ? 0 : Math.PI;
+  // busto abbassato dal crouch (le gambe si piegano)
+  m.body.position.y = -crouch;
+  m.body.rotation.x = a.speedN * 0.14 + slump * 0.30; // inclinazione in corsa / spalle giù
 
-  // ombra
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.beginPath();
-  ctx.ellipse(sp.x, sp.y, 22 * sc, 8 * sc, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  // HIT ZONE (solo per me, durante il rally): verde=perfetto, giallo=ok, grigio=lontano
-  if (isMe && serverState && serverState.phase === 'rally' && interpState && interpState.ball) {
-    drawHitZone(p, sp);
+  // lato del colpo: in locale, la racchetta è a -x. fh ⇔ palla sul lato racchetta.
+  const teamSign = p.team === 'A' ? 1 : -1;
+  let dxLocal = (a.sideX || 1) * teamSign * -1; // <0 = lato racchetta
+  if ((p.charging || a.swing <= 0.01) && ball) {
+    const dxw = ball.x - p.x;
+    if (Math.abs(dxw) > 0.25) dxLocal = (dxw * teamSign >= 0 ? 1 : -1) * -1;
   }
+  const isFH = dxLocal < 0;
+  const sideKey = isFH ? 'fh' : 'bh';
+  // coil del busto: nel dritto le spalle ruotano verso il lato racchetta (-x locale),
+  // nel rovescio verso +x
+  const coilSign = isFH ? -1 : 1;
 
-  // articolazioni (hopY alza tutta la figura nel saltello)
-  const hip = project(p.x + leanX * 0.4, legs - crouch + breath + hopY, p.z);
-  const sh = project(p.x + leanX, torso + legs - 0.25 - crouch + breath + hopY, p.z);
-  const hd = project(p.x + leanX * 1.1, head + torso + legs - crouch + breath + hopY, p.z);
-
-  // GAMBE: ampiezza/frequenza passo proporzionali alla velocità; nello
-  // split-step i piedi si allargano e si staccano da terra insieme
-  ctx.strokeStyle = '#1a1a1a';
-  ctx.lineWidth = 8 * sc; ctx.lineCap = 'round';
-  const splitSpread = a.splitT > 0 ? 0.10 : 0;
-  const stride = 0.10 + a.speedN * 0.34 + splitSpread;
-  const lift = a.speedN * 0.12;
-  const legAx = a.splitT > 0 ? -0.5 : Math.sin(ph);
-  const legBx = a.splitT > 0 ? 0.5 : Math.sin(ph + Math.PI);
-  const fL = project(p.x - 0.22 + legAx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph))) + hopY * 0.8, p.z + legAx * stride * 0.4);
-  const fR = project(p.x + 0.22 + legBx * stride, Math.max(0, lift * (0.5 + 0.5 * Math.sin(ph + Math.PI))) + hopY * 0.8, p.z + legBx * stride * 0.4);
-  ctx.beginPath(); ctx.moveTo(hip.x - 6 * sc, hip.y); ctx.lineTo(fL.x, fL.y); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(hip.x + 6 * sc, hip.y); ctx.lineTo(fR.x, fR.y); ctx.stroke();
-  ctx.fillStyle = '#fff';
-  ctx.beginPath(); ctx.ellipse(fL.x, fL.y, 7 * sc, 4 * sc, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(fR.x, fR.y, 7 * sc, 4 * sc, 0, 0, Math.PI * 2); ctx.fill();
-
-  // TORSO (forma trapezio)
-  ctx.fillStyle = shirt;
-  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(hip.x - 14 * sc, hip.y);
-  ctx.lineTo(hip.x + 14 * sc, hip.y);
-  ctx.lineTo(sh.x + 16 * sc, sh.y);
-  ctx.lineTo(sh.x - 16 * sc, sh.y);
-  ctx.closePath();
-  ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold ${Math.round(12 * sc)}px sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(p.team, (hip.x + sh.x) / 2, (hip.y + sh.y) / 2);
-
-  // BRACCIA + racchetta — pose distinte per colpo, in 3 fasi:
-  // caricamento (mentre si tiene premuto) → contatto → follow-through.
-  // Dritto/rovescio scelti dal lato da cui arriva la palla rispetto al giocatore.
-  const env = Math.max(0, Math.min(1, a.swing));
-  const q = 1 - env; // 0 = inizio swing, 1 = fine follow-through
-  const idleArm = Math.sin(ph + Math.PI) * 0.35 * a.speedN - 0.3;
-
-  // lato schermo del colpo: world-x convertito nella vista corrente (team B vede flippato)
-  const viewFlip = (view.myTeam === 'B') ? -1 : 1;
-  let sideScreen = (a.sideX || 1) * viewFlip;
-  // mentre carico (o a riposo) il lato si aggiorna live dalla posizione della palla
-  const ballNow = interpState && interpState.ball;
-  if ((p.charging || env <= 0.01) && ballNow) {
-    const bsx = project(ballNow.x, 0, ballNow.z).x - sp.x;
-    if (Math.abs(bsx) > 2) sideScreen = bsx >= 0 ? 1 : -1;
-  }
-  // per il MIO giocatore il caricamento conosce già il colpo scelto (pulsante premuto)
   const shotForPose = (p.id === myId && charging) ? charging.shot : (a.shot || 'drive');
+  const env = Math.max(0, Math.min(1, a.swing));
+  const q = 1 - env;
 
-  let armAng, freeAng;
+  // ---- scelta posa braccio racchetta + busto ----
+  let armKey, bodyRot = 0, freeKey = null;
+  const def = SHOT_KEYS[shotForPose] || SHOT_KEYS.drive;
+  const cur = SHOT_KEYS[a.shot] || SHOT_KEYS.drive;
+
   if (a.celeT > 0) {
-    // ESULTANZA: racchetta al cielo, braccio libero pure
-    armAng = -Math.PI * 0.55 + Math.sin(performance.now() / 90) * 0.12;
-    freeAng = Math.PI - armAng;
+    const w = Math.sin(performance.now() / 90) * 0.15;
+    armKey = { rx: -2.9 + w, ry: 0, rz: -0.25, el: 0.25 };
+    freeKey = { rx: -2.9 - w, ry: 0, rz: 0.25, el: 0.25 };
   } else if (a.dejT > 0) {
-    // DELUSIONE: braccia abbandonate lungo i fianchi
-    armAng = Math.PI * 0.42;
-    freeAng = Math.PI * 0.58;
+    armKey = { rx: 0.25, ry: 0, rz: -0.12, el: 0.15 };
+    freeKey = { rx: 0.25, ry: 0, rz: 0.12, el: 0.15 };
   } else if (isServing && p.charging) {
-    // SERVIZIO in caricamento: racchetta dietro la testa, braccio libero alto (toss)
-    armAng = -Math.PI * 0.78 + chargeN * 0.10;
-    freeAng = -Math.PI * 0.5 - 0.12;
+    // caricamento del servizio: racchetta dietro la testa, braccio libero al toss
+    armKey = lerpKey(IDLE_ARM, SHOT_KEYS.serve.fh[0], Math.min(1, chargeN * 2.5));
+    freeKey = { rx: -2.6 * Math.min(1, chargeN * 2.2), ry: 0, rz: 0.30, el: 0.15 };
+    bodyRot = SHOT_KEYS.serve.body[0] * Math.min(1, chargeN * 2.5) * coilSign;
   } else if (p.charging && chargeN > 0.02) {
-    // CARICAMENTO colpo: il braccio va in posizione di windup del colpo scelto
-    const wind = shotArmAngle(shotForPose, 0, sideScreen);
-    armAng = idleArm + (wind - idleArm) * Math.min(1, chargeN * 2.2);
-    freeAng = -armAng * 0.3 - 1.1;
+    // windup del colpo scelto
+    armKey = lerpKey(IDLE_ARM, def[sideKey][0], Math.min(1, chargeN * 2.4));
+    bodyRot = def.body[0] * Math.min(1, chargeN * 2.4) * coilSign;
   } else if (env > 0.01) {
-    // SWING: sweep del colpo memorizzato (contatto → follow-through)
-    armAng = shotArmAngle(a.shot || 'drive', q, sideScreen) + lean * 0.12;
-    freeAng = -armAng * 0.35 - 1.0;
+    // swing in corso (contatto → follow-through)
+    armKey = sampleShotKeys(cur[sideKey], q);
+    bodyRot = sampleBody(cur.body, q) * coilSign;
   } else {
-    // corsa/idle: braccio coordinato con le gambe
-    armAng = idleArm;
-    freeAng = -armAng * 0.4 - 1.2;
+    // idle / corsa: braccia coordinate con le gambe
+    const sw = Math.sin(a.run) * 0.5 * a.speedN;
+    armKey = { rx: IDLE_ARM.rx + sw, ry: 0, rz: IDLE_ARM.rz, el: IDLE_ARM.el + a.speedN * 0.45 };
+    freeKey = { rx: IDLE_ARM.rx - sw, ry: 0, rz: -IDLE_ARM.rz, el: IDLE_ARM.el + a.speedN * 0.45 };
   }
 
-  // attacco del braccio: nel rovescio attraversa il corpo (parte più dal centro)
-  const armRootX = sh.x + (sideScreen >= 0 ? 14 : 6) * sc;
-  const racX = sh.x + Math.cos(armAng) * 36 * sc;
-  const racY = sh.y + Math.sin(armAng) * 36 * sc;
-  ctx.strokeStyle = '#e0c9a0';
-  ctx.lineWidth = 6 * sc;
-  ctx.beginPath(); ctx.moveTo(armRootX, sh.y); ctx.lineTo(racX, racY); ctx.stroke();
-  drawRacket(racX, racY, armAng + Math.PI / 2, sc);
-  // braccio libero
-  ctx.strokeStyle = '#e0c9a0';
-  ctx.beginPath(); ctx.moveTo(sh.x - 14 * sc, sh.y); ctx.lineTo(sh.x - 14 * sc + Math.cos(freeAng) * 30 * sc, sh.y + Math.sin(freeAng) * 30 * sc); ctx.stroke();
+  // orientamento fluido: base verso la rete + coil del colpo + sguardo alla palla
+  let lookTurn = 0;
+  if (ball && a.celeT <= 0 && a.dejT <= 0) {
+    const lx = (ball.x - p.x) * teamSign;
+    const lz = (ball.z - p.z) * teamSign;
+    lookTurn = Math.max(-0.5, Math.min(0.5, Math.atan2(lx, Math.max(0.8, lz)) * 0.55));
+  }
+  const targetTurn = bodyRot + lookTurn;
+  a.turn += (targetTurn - a.turn) * Math.min(1, dt * 10);
+  m.root.rotation.y = faceY + a.turn;
 
-  // TESTA (orientata verso la palla)
-  ctx.fillStyle = '#e8b27a';
-  ctx.beginPath();
-  ctx.arc(hd.x, hd.y, 14 * sc, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 1; ctx.stroke();
-  ctx.fillStyle = '#2a1810';
-  ctx.beginPath();
-  ctx.arc(hd.x + lean * 3 * sc, hd.y - 6 * sc, 14 * sc, Math.PI, Math.PI * 2);
-  ctx.fill();
+  // ---- braccio racchetta ----
+  m.armR.shoulder.rotation.set(armKey.rx, armKey.ry, armKey.rz, 'ZYX');
+  m.armR.elbow.rotation.x = -armKey.el;
+  // ---- braccio libero ----
+  if (!freeKey) freeKey = { rx: 0.15 - (armKey.rx * 0.18), ry: 0, rz: 0.30, el: 0.45 };
+  m.armL.shoulder.rotation.set(freeKey.rx, freeKey.ry, -Math.abs(freeKey.rz), 'ZYX');
+  m.armL.elbow.rotation.x = -freeKey.el;
 
-  // nome
-  ctx.fillStyle = isMe ? '#ffd166' : '#fff';
-  ctx.font = `bold ${Math.round(11 * sc)}px sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4;
-  ctx.fillText(p.name || '·', hd.x, hd.y - 18 * sc);
-  ctx.shadowBlur = 0;
-
-  // bordo "io" pulsante
-  if (isMe) {
-    const pulse = 0.5 + Math.sin(performance.now() / 200) * 0.5;
-    ctx.strokeStyle = `rgba(255, 209, 102, ${0.4 + pulse * 0.5})`;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.ellipse(sp.x, sp.y, 30 * sc, 12 * sc, 0, 0, Math.PI * 2);
-    ctx.stroke();
+  // ---- gambe: ciclo corsa o stance ----
+  const stride = (0.55 + 0.25 * a.speedN);
+  if (a.splitT > 0) {
+    m.legL.hip.rotation.x = 0; m.legR.hip.rotation.x = 0;
+    m.legL.hip.rotation.z = 0.30; m.legR.hip.rotation.z = -0.30;
+    m.legL.knee.rotation.x = 0.5; m.legR.knee.rotation.x = 0.5;
+  } else if (a.speedN > 0.04) {
+    const phL = Math.sin(a.run), phR = Math.sin(a.run + Math.PI);
+    m.legL.hip.rotation.set(phL * stride, 0, 0.02);
+    m.legR.hip.rotation.set(phR * stride, 0, -0.02);
+    m.legL.knee.rotation.x = Math.max(0, -phL) * 1.1 * (0.4 + a.speedN);
+    m.legR.knee.rotation.x = Math.max(0, -phR) * 1.1 * (0.4 + a.speedN);
+  } else {
+    const sway = Math.sin(a.breath) * 0.02;
+    m.legL.hip.rotation.set(sway + crouch * 0.7, 0, 0.03);
+    m.legR.hip.rotation.set(-sway + crouch * 0.7, 0, -0.03);
+    m.legL.knee.rotation.x = crouch * 1.6 + 0.04;
+    m.legR.knee.rotation.x = crouch * 1.6 + 0.04;
   }
 
-  // STAMINA bar sopra testa
-  const stam = Math.max(0, Math.min(1, p.stamina || 0));
-  const barW = 36 * sc;
-  const barH = 4 * sc;
-  const bx = hd.x - barW / 2, by = hd.y - 36 * sc;
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
-  const stamColor = stam > 0.6 ? '#06d6a0' : stam > 0.3 ? '#ffd166' : stam > 0.15 ? '#ff8c42' : '#ff3030';
-  ctx.fillStyle = stamColor;
-  ctx.fillRect(bx, by, barW * stam, barH);
-
-  // CARICA: cerchio attorno
-  if (p.charging) {
-    const ch = Math.min(1, (p.chargeT || 0) / 1.5);
-    const r = (28 + 12 * ch) * sc;
-    ctx.strokeStyle = `hsl(${30 + ch * 90}, 90%, 60%)`;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2 * ch);
-    ctx.stroke();
+  // testa: guarda la palla
+  if (ball) {
+    const lx = (ball.x - p.x) * teamSign;
+    const ly = ball.y - 1.6;
+    const lz = Math.max(0.6, (ball.z - p.z) * teamSign);
+    m.headG.rotation.y = Math.max(-0.7, Math.min(0.7, Math.atan2(lx, lz)));
+    m.headG.rotation.x = Math.max(-0.5, Math.min(0.4, -Math.atan2(ly, Math.hypot(lx, lz)) * 0.6 + slump * 0.5));
+  } else {
+    m.headG.rotation.set(slump * 0.5, 0, 0);
   }
 
-  // EMOTE bubble
-  if (p.emote) {
-    const txt = { mine: 'Mia!', nice: 'Grande!', no: 'Nooo!', go: 'Dai!' }[p.emote.key] || '!';
-    ctx.font = `bold ${Math.round(14 * sc)}px sans-serif`;
-    const w = ctx.measureText(txt).width + 14;
-    const by2 = hd.y - 56 * sc;
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    roundRect(hd.x - w / 2, by2 - 22, w, 26, 8);
-    ctx.fill();
-    ctx.fillStyle = '#2a2a2a';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(txt, hd.x, by2 - 9);
+  // targhetta nome + emote
+  const emoteTxt = p.emote ? ({ mine: 'Mia!', nice: 'Grande!', no: 'Nooo!', go: 'Dai!' }[p.emote.key] || '!') : '';
+  updateNameSprite(m.name, p.name, p.color, p.id === myId, p.stamina || 0, emoteTxt);
+
+  // anello carica
+  const ring = getChargeRing(p.id);
+  if (p.charging && chargeN > 0.01) {
+    ring.visible = true;
+    ring.position.set(p.x, 0.025, p.z);
+    const s = 1 + chargeN * 0.65;
+    ring.scale.set(s, s, 1);
+    ring.material.color.setHSL(0.12 - chargeN * 0.12, 0.95, 0.6);
+    ring.material.opacity = 0.45 + chargeN * 0.45;
+  } else ring.visible = false;
+
+  // scia di scivolata sulla terra
+  if ((p.slide || 0) > 0.3 && serverState && serverState.court === 'clay' && Math.random() < 0.35) {
+    spawnBurst(p.x, 0.06, p.z, COURT_THEMES.clay.particle, 2, 1.2);
   }
-
-  // particelle slide su terra rossa
-  if ((p.slide || 0) > 0.3 && serverState && serverState.court === 'clay' && Math.random() < 0.4) {
-    pSpawn({ x: p.x + (Math.random() - 0.5) * 0.4, y: 0.05, z: p.z + (Math.random() - 0.5) * 0.4,
-      vx: (Math.random() - 0.5) * 2, vy: 0.5 + Math.random() * 1.5, vz: (Math.random() - 0.5) * 2,
-      life: 0.4, color: COURT_THEMES.clay.particle[Math.floor(Math.random() * 4)], size: 2.5 });
-  }
-}
-
-function drawRacket(x, y, ang, sc) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(ang);
-  // testa ovale
-  ctx.strokeStyle = '#222';
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 3 * sc;
-  ctx.beginPath();
-  ctx.ellipse(0, -18 * sc, 12 * sc, 16 * sc, 0, 0, Math.PI * 2);
-  ctx.fill(); ctx.stroke();
-  // corde
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 0.8 * sc;
-  for (let i = -3; i <= 3; i++) {
-    ctx.beginPath();
-    ctx.moveTo(i * 3 * sc, -18 * sc - 13 * sc); ctx.lineTo(i * 3 * sc, -18 * sc + 13 * sc);
-    ctx.stroke();
-  }
-  for (let i = -3; i <= 3; i++) {
-    ctx.beginPath();
-    ctx.moveTo(-11 * sc, -18 * sc + i * 3 * sc); ctx.lineTo(11 * sc, -18 * sc + i * 3 * sc);
-    ctx.stroke();
-  }
-  // manico
-  ctx.strokeStyle = '#222'; ctx.lineWidth = 4 * sc;
-  ctx.beginPath(); ctx.moveTo(0, -2 * sc); ctx.lineTo(0, 12 * sc); ctx.stroke();
-  ctx.restore();
-}
-
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
-}
-
-function drawBall(b) {
-  if (!b) return;
-  const bp = project(b.x, b.y, b.z);
-  const sp = project(b.x, 0, b.z);
-  // ombra
-  ctx.save();
-  const shadowR = (sp.s / view.cam.nearScale) * 8 / Math.max(0.4, 1 + b.y * 0.18);
-  const shadowSquish = Math.max(0.3, 1 - b.y * 0.05);
-  ctx.fillStyle = `rgba(0,0,0,${0.55 / Math.max(0.4, 1 + b.y * 0.2)})`;
-  ctx.beginPath();
-  ctx.ellipse(sp.x, sp.y, shadowR, shadowR * 0.45 * shadowSquish, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  // scia: colore diverso per tipo di colpo
-  const trailC = SHOT_COLORS[b.type] || '#fff';
-  if (b.isSuper) drawRainbowTrail(); else drawTrail(trailC);
-
-  // palla
-  const r = (sp.s / view.cam.nearScale) * 11;
-  ctx.fillStyle = '#dfff5a';
-  ctx.beginPath(); ctx.arc(bp.x, bp.y, r, 0, Math.PI * 2); ctx.fill();
-  // curva bianca tipica della palla da tennis
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = Math.max(0.8, r * 0.18);
-  ctx.beginPath();
-  ctx.arc(bp.x, bp.y, r * 1.02, -Math.PI * 0.85, -Math.PI * 0.15);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(bp.x, bp.y, r * 1.02, Math.PI * 0.15, Math.PI * 0.85);
-  ctx.stroke();
-  // highlight
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.beginPath(); ctx.arc(bp.x - r * 0.35, bp.y - r * 0.35, r * 0.35, 0, Math.PI * 2); ctx.fill();
-}
-
-function drawTrail(color) {
-  if (trail.length < 2) return;
-  for (let i = 1; i < trail.length; i++) {
-    const a = i / trail.length;
-    const p0 = trail[i - 1];
-    const p1 = trail[i];
-    const s0 = project(p0.x, p0.y, p0.z);
-    const s1 = project(p1.x, p1.y, p1.z);
-    ctx.strokeStyle = color;
-    ctx.globalAlpha = a * 0.7;
-    ctx.lineWidth = 2 + a * 4;
-    ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(s0.x, s0.y); ctx.lineTo(s1.x, s1.y); ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-}
-function drawRainbowTrail() {
-  const cols = ['#ff006e', '#fb5607', '#ffbe0b', '#06d6a0', '#3a86ff', '#8338ec'];
-  for (let i = 1; i < trail.length; i++) {
-    const a = i / trail.length;
-    const p0 = trail[i - 1], p1 = trail[i];
-    const s0 = project(p0.x, p0.y, p0.z), s1 = project(p1.x, p1.y, p1.z);
-    ctx.strokeStyle = cols[i % cols.length];
-    ctx.globalAlpha = a;
-    ctx.lineWidth = 4 + a * 6;
-    ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(s0.x, s0.y); ctx.lineTo(s1.x, s1.y); ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
 }
 
 // =========================================================================
-// HUD scoreboard (DOM)
+// Palla 3D + scia + ombra
+// =========================================================================
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.075, 18, 14),
+  new THREE.MeshStandardMaterial({ color: 0xdfff5a, emissive: 0xb8d62e, emissiveIntensity: 0.5, roughness: 0.45 }));
+ballMesh.castShadow = true;
+ballMesh.visible = false;
+world.add(ballMesh);
+// alone luminoso: rende la palla leggibile anche in fondo al campo
+const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: dotTex, color: 0xeaff7a, transparent: true, opacity: 0.6,
+  blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+}));
+ballGlow.scale.set(0.55, 0.55, 1);
+ballMesh.add(ballGlow);
+const ballBlob = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16),
+  new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));
+ballBlob.rotation.x = -Math.PI / 2; ballBlob.position.y = 0.014; ballBlob.visible = false;
+world.add(ballBlob);
+let ballSquash = 0;
+
+// scia: Points con dissolvenza
+const TRAIL_N = 22;
+const trailGeo = new THREE.BufferGeometry();
+const trailPos = new Float32Array(TRAIL_N * 3);
+const trailCol = new Float32Array(TRAIL_N * 3);
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+trailGeo.setAttribute('color', new THREE.BufferAttribute(trailCol, 3));
+const trailPts = new THREE.Points(trailGeo, new THREE.PointsMaterial({
+  size: 0.17, vertexColors: true, transparent: true, opacity: 0.9, map: dotTex,
+  blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+}));
+trailPts.frustumCulled = false;
+world.add(trailPts);
+const trailHist = [];
+let trailLastT = 0;
+
+function updateBall3D(b, now) {
+  if (!b) { ballMesh.visible = false; ballBlob.visible = false; trailHist.length = 0; updateTrail('#fff'); return; }
+  ballMesh.visible = true;
+  ballMesh.position.set(b.x, Math.max(0.05, b.y), b.z);
+  ballSquash = Math.max(0, ballSquash - 0.06);
+  ballMesh.scale.set(1 + ballSquash * 0.4, 1 - ballSquash * 0.5, 1 + ballSquash * 0.4);
+  ballBlob.visible = true;
+  ballBlob.position.set(b.x, 0.014, b.z);
+  const hN = Math.min(1, b.y / 6);
+  ballBlob.material.opacity = 0.42 * (1 - hN * 0.7);
+  const bs = 1 + hN * 1.6;
+  ballBlob.scale.set(bs, bs, 1);
+
+  if (now - trailLastT > 16 && !b.held) {
+    trailHist.push({ x: b.x, y: b.y, z: b.z });
+    if (trailHist.length > TRAIL_N) trailHist.shift();
+    trailLastT = now;
+  }
+  updateTrail(SHOT_COLORS[b.type] || '#ffffff', b.isSuper);
+}
+const _tmpColor = new THREE.Color();
+function updateTrail(hex, rainbow) {
+  for (let i = 0; i < TRAIL_N; i++) {
+    const h = trailHist[i];
+    const k = trailHist.length > 1 ? i / (trailHist.length - 1) : 0;
+    if (h) {
+      trailPos[i * 3] = h.x; trailPos[i * 3 + 1] = h.y; trailPos[i * 3 + 2] = h.z;
+      if (rainbow) _tmpColor.setHSL((k * 2 + performance.now() / 800) % 1, 0.95, 0.55);
+      else _tmpColor.set(hex);
+      const f = k * k * 0.9;
+      trailCol[i * 3] = _tmpColor.r * f; trailCol[i * 3 + 1] = _tmpColor.g * f; trailCol[i * 3 + 2] = _tmpColor.b * f;
+    } else {
+      trailPos[i * 3 + 1] = -10;
+      trailCol[i * 3] = trailCol[i * 3 + 1] = trailCol[i * 3 + 2] = 0;
+    }
+  }
+  trailGeo.attributes.position.needsUpdate = true;
+  trailGeo.attributes.color.needsUpdate = true;
+}
+
+// segni dei rimbalzi sulla terra rossa
+const clayMarks = [];
+function addClayMark(x, z) {
+  if (!serverState || serverState.court !== 'clay') return;
+  let mk;
+  if (clayMarks.length >= 22) { mk = clayMarks.shift(); }
+  else {
+    mk = new THREE.Mesh(new THREE.CircleGeometry(0.07, 10),
+      new THREE.MeshBasicMaterial({ color: 0x6e2e10, transparent: true, opacity: 0.55, depthWrite: false }));
+    mk.rotation.x = -Math.PI / 2;
+    world.add(mk);
+  }
+  mk.position.set(x, 0.016, z);
+  mk.material.opacity = 0.55;
+  clayMarks.push(mk);
+}
+
+// =========================================================================
+// Traiettoria prevista (stessa fisica del server) + anello atterraggio
+// =========================================================================
+const PRED_N = 22;
+const predDots = [];
+for (let i = 0; i < PRED_N; i++) {
+  const d = new THREE.Mesh(new THREE.SphereGeometry(0.035, 8, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false }));
+  d.visible = false; predDots.push(d); world.add(d);
+}
+const landRing = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.21, 28),
+  new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }));
+landRing.rotation.x = -Math.PI / 2; landRing.position.y = 0.02; landRing.visible = false;
+world.add(landRing);
+
+function updatePredictedPath(b) {
+  let used = 0;
+  let land = null;
+  if (b && !b.held && Math.hypot(b.vx || 0, b.vy || 0, b.vz || 0) > 1.5) {
+    let x = b.x, y = b.y, z = b.z, vx = b.vx, vy = b.vy, vz = b.vz;
+    let spin = b.spin || 0, curve = b.curve || 0;
+    const dt = 1 / 60;
+    const col = SHOT_COLORS[b.type] || '#ffffff';
+    for (let i = 0; i < 160 && used < PRED_N; i++) {
+      const v = Math.hypot(vx, vy, vz);
+      vx -= vx * 0.024 * v * dt; vy -= vy * 0.024 * v * dt; vz -= vz * 0.024 * v * dt;
+      vy -= 9.8 * dt; vy -= spin * 8.0 * dt;
+      if (curve) { vx += curve * 5.0 * dt; curve *= (1 - dt * 0.5); }
+      const zPrev = z;
+      x += vx * dt; y += vy * dt; z += vz * dt;
+      if (zPrev * z < 0 && y < COURT.NET_H_CENTER && Math.abs(x) < COURT.DOUBLES_HALF_W + 0.9) break;
+      if (y <= 0.034) { land = { x, z, col }; break; }
+      if (i % 7 === 6) {
+        const d = predDots[used++];
+        d.visible = true;
+        d.position.set(x, y, z);
+        d.material.color.set(col);
+        d.material.opacity = 0.16 + 0.30 * (used / PRED_N);
+      }
+    }
+  }
+  for (let i = used; i < PRED_N; i++) predDots[i].visible = false;
+  if (land) {
+    landRing.visible = true;
+    landRing.position.set(land.x, 0.02, land.z);
+    landRing.material.color.set(land.col);
+    const k = 1 + 0.18 * Math.sin(performance.now() / 150);
+    landRing.scale.set(k, k, 1);
+  } else landRing.visible = false;
+}
+
+// =========================================================================
+// Frecce di mira (servizio + colpo in carica)
+// =========================================================================
+function makeAimArrow(colorHex) {
+  const g = new THREE.Group();
+  const mat = new THREE.LineDashedMaterial({ color: colorHex, dashSize: 0.45, gapSize: 0.3, transparent: true, opacity: 0.85 });
+  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, 1)]);
+  const line = new THREE.Line(geo, mat);
+  g.add(line);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.45, 10), new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 }));
+  g.add(head);
+  g.visible = false;
+  g.userData = { line, head };
+  world.add(g);
+  return g;
+}
+const serveAim = makeAimArrow(0xffd166);
+const shotAim = makeAimArrow(0x74c0fc);
+function pointAim(arrow, x0, z0, x1, z1) {
+  arrow.visible = true;
+  const { line, head } = arrow.userData;
+  line.geometry.setFromPoints([new THREE.Vector3(x0, 0.07, z0), new THREE.Vector3(x1, 0.07, z1)]);
+  line.geometry.attributes.position.needsUpdate = true;
+  line.computeLineDistances();
+  head.position.set(x1, 0.07, z1);
+  head.rotation.set(Math.PI / 2, 0, Math.atan2(x1 - x0, z1 - z0) > 0 ? 0 : 0);
+  head.lookAt(x1 + (x1 - x0) * 0.01, 0.07, z1 + (z1 - z0) * 0.01);
+  head.rotateX(Math.PI / 2);
+}
+
+// =========================================================================
+// Particelle 3D (rimbalzi, polvere) + anelli d'impatto
+// =========================================================================
+const PART_N = 140;
+const partGeo = new THREE.BufferGeometry();
+const partPos = new Float32Array(PART_N * 3);
+const partCol = new Float32Array(PART_N * 3);
+partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3));
+partGeo.setAttribute('color', new THREE.BufferAttribute(partCol, 3));
+const partPts = new THREE.Points(partGeo, new THREE.PointsMaterial({
+  size: 0.075, vertexColors: true, transparent: true, opacity: 0.95, map: dotTex,
+  blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+}));
+partPts.frustumCulled = false;
+world.add(partPts);
+const partData = [];
+for (let i = 0; i < PART_N; i++) partData.push({ life: 0, max: 1, x: 0, y: -10, z: 0, vx: 0, vy: 0, vz: 0 });
+let partCursor = 0;
+
+function spawnBurst(x, y, z, colors, n, vel) {
+  for (let i = 0; i < n; i++) {
+    const p = partData[partCursor];
+    partCursor = (partCursor + 1) % PART_N;
+    const ang = Math.random() * Math.PI * 2;
+    const sp = (0.6 + Math.random() * 1.4) * (vel || 1.5);
+    p.x = x; p.y = y; p.z = z;
+    p.vx = Math.cos(ang) * sp; p.vz = Math.sin(ang) * sp;
+    p.vy = 0.8 + Math.random() * 2.2;
+    p.life = p.max = 0.45 + Math.random() * 0.35;
+    _tmpColor.set(colors[(Math.random() * colors.length) | 0]);
+    p.cr = _tmpColor.r; p.cg = _tmpColor.g; p.cb = _tmpColor.b;
+  }
+}
+function stepParticles(dt) {
+  for (let i = 0; i < PART_N; i++) {
+    const p = partData[i];
+    if (p.life <= 0) { partPos[i * 3 + 1] = -10; continue; }
+    p.life -= dt;
+    p.vy -= 9 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    if (p.y < 0.02) { p.y = 0.02; p.vy *= -0.35; p.vx *= 0.8; p.vz *= 0.8; }
+    const f = Math.max(0, p.life / p.max);
+    partPos[i * 3] = p.x; partPos[i * 3 + 1] = p.y; partPos[i * 3 + 2] = p.z;
+    partCol[i * 3] = (p.cr || 1) * f; partCol[i * 3 + 1] = (p.cg || 1) * f; partCol[i * 3 + 2] = (p.cb || 1) * f;
+  }
+  partGeo.attributes.position.needsUpdate = true;
+  partGeo.attributes.color.needsUpdate = true;
+}
+
+// anelli d'impatto al contatto racchetta-palla
+const popRings = [];
+for (let i = 0; i < 5; i++) {
+  const r = new THREE.Mesh(new THREE.RingGeometry(0.30, 0.36, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false }));
+  r.visible = false;
+  r.userData = { t: 1 };
+  popRings.push(r); world.add(r);
+}
+function spawnPop(x, y, z, colorHex) {
+  const r = popRings.find(rr => rr.userData.t >= 1) || popRings[0];
+  r.userData.t = 0;
+  r.visible = true;
+  r.position.set(x, y, z);
+  r.material.color.set(colorHex || '#ffffff');
+}
+function stepPops(dt) {
+  for (const r of popRings) {
+    if (r.userData.t >= 1) { r.visible = false; continue; }
+    r.userData.t = Math.min(1, r.userData.t + dt / 0.4);
+    const k = r.userData.t;
+    const s = 0.5 + k * 3.2;
+    r.scale.set(s, s, s);
+    r.material.opacity = (1 - k) * 0.85;
+    r.lookAt(camera.position);
+  }
+}
+
+// =========================================================================
+// Effetti UI: toast, flash, screen shake
+// =========================================================================
+let shakeT = 0, shakeAmp = 0;
+const toastEl = document.getElementById('toast');
+const flashEl = document.getElementById('flash');
+const vignetteEl = document.getElementById('vignette');
+function toast(text, klass = '', dur = 900) {
+  toastEl.textContent = text;
+  toastEl.className = 'show ' + klass;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { toastEl.classList.remove('show'); }, dur);
+}
+function flash(amount = 0.7, dur = 180) {
+  flashEl.style.opacity = amount;
+  setTimeout(() => { flashEl.style.opacity = 0; }, dur);
+}
+function vignette(color = 'rgba(255,0,0,0.4)', dur = 350) {
+  vignetteEl.style.boxShadow = `inset 0 0 120px 0 ${color}`;
+  setTimeout(() => { vignetteEl.style.boxShadow = 'inset 0 0 0 0 transparent'; }, dur);
+}
+function shake(a, d = 0.35) { shakeAmp = Math.max(shakeAmp, a); shakeT = Math.max(shakeT, d); }
+
+// =========================================================================
+// Eventi dal server → effetti
+// =========================================================================
+function processEvents(events) {
+  for (const ev of events) {
+    if (ev.type === 'hit') {
+      const an = getAnim(ev.id);
+      an.shot = ev.shot || 'drive';
+      an.sideX = ev.sideX || 1;
+      const p = (serverState.players || []).find(pp => pp.id === ev.id);
+      const hitterTeam = ev.team || (p && p.team);
+      if (hitterTeam) {
+        for (const q of serverState.players || []) {
+          if (q.team !== hitterTeam) getAnim(q.id).splitT = 0.26;
+        }
+      }
+      shake(0.25 + (ev.charge || 0) * 0.8 + (ev.super ? 1.2 : 0));
+      flash(0.05 + (ev.charge || 0) * 0.10 + (ev.timing === 'perfect' ? 0.12 : 0), 90);
+      spawnPop(ev.x, 1.15, ev.z, ev.super ? '#ff006e' : ev.timing === 'perfect' ? '#06d6a0' : '#ffffff');
+      spawnBurst(ev.x, 1.1, ev.z, [SHOT_COLORS[ev.shot] || '#fff'], 7, 1.8);
+      sfxPock(Math.min(1, (ev.charge || 0) + (ev.super ? 0.5 : 0)));
+      if (ev.shot === 'smash') shake(1.6, 0.45);
+      if (ev.super) { shake(2.0, 0.55); flash(0.4); }
+    } else if (ev.type === 'perfect') {
+      toast('PERFECT!', 'gold', 800);
+      spawnBurst(ev.x, 1.4, ev.z, ['#ffd166', '#fff3bf'], 14, 2.6);
+    } else if (ev.type === 'bounce') {
+      const theme = COURT_THEMES[ev.court] || COURT_THEMES.hard;
+      spawnBurst(ev.x, 0.04, ev.z, theme.particle, ev.court === 'clay' ? 12 : 7, 1.6);
+      addClayMark(ev.x, ev.z);
+      ballSquash = 1;
+      sfxBounce();
+    } else if (ev.type === 'out') {
+      toast('OUT!', 'red', 900);
+      flash(0.3); vignette('rgba(255,50,50,0.55)', 400);
+    } else if (ev.type === 'net') {
+      toast('NET!', '', 700);
+      spawnBurst(ev.x, ev.y || 0.8, 0, ['#cfd6e1'], 6, 1.2);
+    } else if (ev.type === 'fault') {
+      toast(ev.n === 1 ? 'FAULT' : 'DOUBLE FAULT!', ev.n === 1 ? 'orange' : 'red', 900);
+    } else if (ev.type === 'pointWon') {
+      flash(0.35, 220);
+      shake(1.2, 0.4);
+      sfxApplause();
+      for (const q of serverState.players || []) {
+        const an = getAnim(q.id);
+        if (q.team === ev.team) { an.celeT = 1.4; an.dejT = 0; }
+        else { an.dejT = 1.4; an.celeT = 0; }
+      }
+    } else if (ev.type === 'miss') {
+      if (ev.id === myId) toast('A VUOTO!', 'orange', 500);
+    } else if (ev.type === 'game') {
+      toast('GAME', 'blue', 1100);
+    } else if (ev.type === 'set') {
+      toast('SET ' + ev.team, 'gold', 1500);
+      sfxApplause(1.6);
+    } else if (ev.type === 'match') {
+      toast(`MATCH ${ev.team === myTeam ? 'WIN' : 'LOSS'}!`, ev.team === myTeam ? 'gold' : 'red', 3000);
+      sfxApplause(2.2);
+    } else if (ev.type === 'deuce') {
+      toast('DEUCE', '', 900);
+    } else if (ev.type === 'advantage') {
+      toast('VANTAGGIO ' + ev.team, 'gold', 900);
+    } else if (ev.type === 'tiebreak') {
+      toast('TIE-BREAK', 'orange', 1500);
+    } else if (ev.type === 'doubleFault') {
+      toast('DOPPIO FALLO', 'red', 1100);
+    } else if (ev.type === 'serveHit') {
+      // niente toast
+    }
+  }
+}
+
+// =========================================================================
+// HUD scoreboard (DOM) — ricostruito solo quando cambia
 // =========================================================================
 function pointLabel(n) { return ['0', '15', '30', '40'][Math.min(3, n)]; }
-// Nome squadra: primo giocatore (+N se compagni), stile tabellone torneo
 function teamLabel(team) {
   const list = (serverState.players || []).filter(pp => pp.team === team);
   if (!list.length) return team;
   const base = (list[0].name || team).slice(0, 9).toUpperCase();
   return list.length > 1 ? `${base} +${list.length - 1}` : base;
 }
-let scorePopT = -1e9, lastScoreKey = '';
+let scorePopT = -1e9, lastScoreKey = '', lastHudHtml = '';
 function renderHud() {
   const hud = document.getElementById('hud');
-  if (!serverState) { hud.innerHTML = ''; return; }
+  if (!serverState) { if (lastHudHtml) { hud.innerHTML = ''; lastHudHtml = ''; } return; }
   const s = serverState.score;
-  // etichette dal server (fonte unica della verità); fallback locale se assenti
   let aLabel, bLabel;
-  if (s.labels) {
-    aLabel = s.labels.A; bLabel = s.labels.B;
-  } else if (s.tiebreak) {
-    aLabel = s.tbPoints.A; bLabel = s.tbPoints.B;
-  } else if (s.deuce || s.advantage) {
-    if (s.advantage === 'A') { aLabel = 'AD'; bLabel = '40'; }
-    else if (s.advantage === 'B') { aLabel = '40'; bLabel = 'AD'; }
-    else { aLabel = '40'; bLabel = '40'; }
-  } else {
-    aLabel = pointLabel(s.points.A); bLabel = pointLabel(s.points.B);
-  }
-  // animazione del punteggio quando cambia: pop di scala che decade
+  if (s.labels) { aLabel = s.labels.A; bLabel = s.labels.B; }
+  else { aLabel = pointLabel(s.points.A); bLabel = pointLabel(s.points.B); }
+
   const key = `${aLabel}|${bLabel}|${s.games.A}|${s.games.B}|${(s.sets || []).length}`;
   if (key !== lastScoreKey) {
     if (lastScoreKey) scorePopT = performance.now();
@@ -1580,13 +1695,11 @@ function renderHud() {
   const pop = Math.max(0, 1 - (performance.now() - scorePopT) / 450);
   const popScale = 1 + pop * pop * 0.16;
 
-  // pallino di chi è al servizio
   const sv = (serverState.players || []).find(pp => pp.id === serverState.serverId);
   const servingTeam = sv ? sv.team : null;
   const dotA = servingTeam === 'A' ? '<span class="serve-dot">●</span>' : '';
   const dotB = servingTeam === 'B' ? '<span class="serve-dot">●</span>' : '';
 
-  // colonne: SQUADRA | SET vinti | game per set | PUNTI
   const sets = s.sets || [{ A: 0, B: 0 }];
   let setHeaders = '<div class="head">·</div><div class="head">SET</div>';
   let aRow = `<div class="tn A">${dotA}${teamLabel('A')}</div><div class="cell sets">${(s.setsWon && s.setsWon.A) || 0}</div>`;
@@ -1608,70 +1721,77 @@ function renderHud() {
   const kmh = s.lastServeKmh ? `· ${s.lastServeKmh} km/h` : '';
   const nCols = 2 + Math.max(1, sets.length);
 
-  hud.innerHTML = `
-    <div class="scoreboard" style="grid-template-columns: auto repeat(${nCols}, minmax(28px, auto)); transform: scale(${popScale});">
+  const html = `
+    <div class="scoreboard" style="grid-template-columns: auto repeat(${nCols}, minmax(28px, auto)); transform: scale(${popScale.toFixed(3)});">
       <div class="row">${setHeaders}</div>
       <div class="row">${aRow}</div>
       <div class="row">${bRow}</div>
     </div>
     <div class="meta">${mode} · ${courtName} ${kmh}</div>
   `;
+  if (html !== lastHudHtml) { hud.innerHTML = html; lastHudHtml = html; }
 
-  // energia super pronto?
+  // energia (DOM)
+  const myE = (serverState.energy && serverState.energy[myTeam]) || 0;
+  const opE = (serverState.energy && serverState.energy[myTeam === 'A' ? 'B' : 'A']) || 0;
+  const em = document.getElementById('energyMine'), eo = document.getElementById('energyOpp');
+  em.querySelector('.efill').style.width = (myE * 100) + '%';
+  eo.querySelector('.efill').style.width = (opE * 100) + '%';
+  em.classList.toggle('full', myE >= 1);
+  eo.classList.toggle('full', opE >= 1);
+  eo.querySelector('.efill').style.background = TEAM_COLOR[myTeam === 'A' ? 'B' : 'A'].main;
+  if (myE < 1) em.querySelector('.efill').style.background = TEAM_COLOR[myTeam].main;
+
   const shotsEl = document.getElementById('shots');
-  if (serverState.energy && serverState.energy[myTeam] >= 1.0) {
-    shotsEl.classList.add('super-ready');
-  } else {
-    shotsEl.classList.remove('super-ready');
-  }
+  shotsEl.classList.toggle('super-ready', myE >= 1.0);
 
-  // durante il mio servizio mostro il pannello servizio e nascondo i tasti colpo
   const iAmServing = serverState.phase === 'serving' && serverState.serverId === myId;
   document.getElementById('servePanel').classList.toggle('show', iAmServing);
   shotsEl.classList.toggle('hidden', iAmServing);
-  // Stato pulito tra un punto e l'altro: se non sto servendo, nessuna carica di servizio
-  // deve restare appesa (eviterebbe il prossimo serveDown).
   if (!iAmServing && serveCharging) resetServeCharge();
-  // analogamente, se non sono in rally non deve restare appesa una carica di colpo.
   if (serverState.phase !== 'rally' && charging) endShotCharge(false);
 }
 
-// energy meter ai bordi (canvas-side)
-function drawEnergyMeters() {
-  if (!serverState || !serverState.energy) return;
-  const myE = serverState.energy[myTeam] || 0;
-  const oppE = serverState.energy[myTeam === 'A' ? 'B' : 'A'] || 0;
-  // mio (in basso al centro, sopra i pulsanti)
-  const ww = W * 0.36;
-  const hh = 8;
-  drawBar(W / 2 - ww / 2, H - 14, ww, hh, myE, TEAM_COLOR[myTeam].main, true);
-  // avversario in alto
-  drawBar(W / 2 - ww / 2, 78 + (window.devicePixelRatio > 2 ? 14 : 0), ww, hh, oppE, TEAM_COLOR[myTeam === 'A' ? 'B' : 'A'].main, false);
-}
-function drawBar(x, y, w, h, v, color, mine) {
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
-  ctx.fillStyle = '#1a2030';
-  ctx.fillRect(x, y, w, h);
-  const fillW = w * Math.max(0, Math.min(1, v));
-  if (v >= 1) {
-    const g = ctx.createLinearGradient(x, y, x + w, y);
-    g.addColorStop(0, '#ff006e'); g.addColorStop(0.25, '#fb5607'); g.addColorStop(0.5, '#ffbe0b'); g.addColorStop(0.75, '#06d6a0'); g.addColorStop(1, '#3a86ff');
-    ctx.fillStyle = g;
-  } else {
-    ctx.fillStyle = color;
+// =========================================================================
+// Camera: TV-style dietro la mia metà campo, segue dolcemente palla e giocatore
+// =========================================================================
+function updateCamera(s, dt) {
+  // hook per screenshot/debug: window.dbgCam = {x,y,z,lx,ly,lz}
+  if (window.dbgCam) {
+    const d = window.dbgCam;
+    camera.position.set(d.x, d.y, d.z);
+    camera.lookAt(d.lx || 0, d.ly || 1, d.lz || 0);
+    return;
   }
-  ctx.fillRect(x, y, fillW, h);
-  ctx.fillStyle = '#fff';
-  ctx.font = `bold 9px ui-monospace, monospace`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(`${mine ? 'TU' : 'AVV'} · SUPER ${v >= 1 ? '· PRONTO!' : Math.round(v * 100) + '%'}`, x + w / 2, y + h / 2 + 1);
-  ctx.restore();
+  const side = myTeam === 'B' ? -1 : 1; // la mia baseline: z negativo per A
+  const ball = s && s.ball;
+  const me = s && (s.players || []).find(p => p.id === myId);
+  let tx = 0;
+  if (ball && me) tx = ball.x * 0.30 + me.x * 0.22;
+  else if (me) tx = me.x * 0.35;
+  tx = Math.max(-3.4, Math.min(3.4, tx)) * side;
+
+  const targetPos = new THREE.Vector3(tx, 6.7, -side * (COURT.BASELINE_Z + 7.9));
+  const targetLook = new THREE.Vector3(tx * 0.45, 0.25, side * 4.2);
+  const k = Math.min(1, dt * 4.5);
+  camPos.lerp(targetPos, k);
+  camLook.lerp(targetLook, k);
+
+  // screen shake
+  let ox = 0, oy = 0;
+  if (shakeT > 0) {
+    ox = (Math.random() - 0.5) * shakeAmp * 0.16;
+    oy = (Math.random() - 0.5) * shakeAmp * 0.16;
+    shakeT -= dt;
+    shakeAmp *= 0.92;
+    if (shakeT <= 0) { shakeT = 0; shakeAmp = 0; }
+  }
+  camera.position.set(camPos.x + ox, camPos.y + oy, camPos.z);
+  camera.lookAt(camLook.x, camLook.y, camLook.z);
 }
 
 // =========================================================================
-// MAIN LOOP — 120fps con rAF
+// MAIN LOOP
 // =========================================================================
 let lastFrameT = performance.now();
 let interpState = null;
@@ -1680,129 +1800,94 @@ function frame(now) {
   let dt = (now - lastFrameT) / 1000;
   lastFrameT = now;
   if (dt > 0.1) dt = 0.1;
-  if (slowmoT > 0) { slowmoT -= dt; dt *= 0.35; }
-
-  updateCam();
 
   interpState = interp(now);
   const s = interpState;
 
-  // shake
-  let sx = 0, sy = 0;
-  if (shakeT > 0) {
-    sx = (Math.random() - 0.5) * shakeAmp * 12;
-    sy = (Math.random() - 0.5) * shakeAmp * 12;
-    shakeT -= dt;
-    shakeAmp *= 0.92;
-    if (shakeT <= 0) { shakeT = 0; shakeAmp = 0; }
-  }
-
-  ctx.save();
-  ctx.translate(sx, sy);
-  drawBg();
-
   if (s) {
-    const theme = COURT_THEMES[s.court] || COURT_THEMES.hard;
-    drawCourt(theme);
-    drawNet();
-
-    // ordina players per z (lontani prima)
-    const playersSorted = (s.players || []).slice().sort((a, b) => {
-      const za = view.myTeam === 'B' ? -a.z : a.z;
-      const zb = view.myTeam === 'B' ? -b.z : b.z;
-      return zb - za;
-    });
-    // disegna giocatori
-    for (const p of playersSorted) drawPlayer(p, dt);
-
-    // freccia direzione servizio per il servitore
-    if (s.phase === 'serving' && s.serverId === myId && s.ball) {
-      drawServeAim(s);
+    // giocatori: crea/aggiorna/rimuovi
+    const seen = new Set();
+    for (const p of s.players || []) {
+      seen.add(p.id);
+      updatePlayer3D(p, dt);
     }
-    // freccia di mira mentre carico un colpo nel rally
-    if (charging && s.phase === 'rally') {
-      drawShotAim(s);
-    }
-
-    // palla
-    if (s.ball) {
-      // traiettoria prevista con puntini (solo durante il rally)
-      if (s.phase === 'rally') drawPredictedPath(s.ball);
-      // trail update
-      if (now - trailLastT > 16) {
-        trail.push({ x: s.ball.x, y: s.ball.y, z: s.ball.z });
-        if (trail.length > 18) trail.shift();
-        trailLastT = now;
+    for (const [id, m] of playerMeshes) {
+      if (!seen.has(id)) {
+        world.remove(m.root);
+        const ring = chargeRings.get(id);
+        if (ring) { world.remove(ring); chargeRings.delete(id); }
+        playerMeshes.delete(id);
+        delete animStates[id];
       }
-      drawBall(s.ball);
-    } else {
-      trail.length = 0;
     }
 
-    // particelle + pop di contatto
-    pStep(dt);
-    pDraw();
-    stepPops(dt);
-    drawPops();
+    // hit zone per me
+    const me = (s.players || []).find(p => p.id === myId);
+    if (me && s.phase === 'rally') {
+      const reach = serverState.hitReach || 4.0;
+      hitZone.visible = hitZoneFill.visible = sweetZone.visible = true;
+      hitZone.position.set(me.x, 0.02, me.z);
+      hitZoneFill.position.set(me.x, 0.015, me.z);
+      sweetZone.position.set(me.x, 0.022, me.z);
+      hitZone.scale.set(reach, reach, 1);
+      hitZoneFill.scale.set(reach, reach, 1);
+      const perfectR = Math.max(0.35, 0.7 - (serverState.rallyCount || 0) * 0.02);
+      sweetZone.scale.set(perfectR / 0.63, perfectR / 0.63, 1);
+      const b = s.ball;
+      const dist = b ? Math.hypot(b.x - me.x, b.z - me.z) : 999;
+      const canHit = !!me.canHit;
+      const near = !canHit && b && dist < reach * 1.9 && b.y < 6;
+      const pulse = canHit ? 0.8 + 0.2 * Math.sin(now / 90) : 1;
+      if (canHit) {
+        hitZone.material.color.set(0x06d6a0); hitZone.material.opacity = 0.9 * pulse;
+        hitZoneFill.material.color.set(0x06d6a0); hitZoneFill.material.opacity = 0.10;
+      } else if (near) {
+        hitZone.material.color.set(0xffd166); hitZone.material.opacity = 0.55;
+        hitZoneFill.material.color.set(0xffd166); hitZoneFill.material.opacity = 0.05;
+      } else {
+        hitZone.material.color.set(0xffffff); hitZone.material.opacity = 0.18;
+        hitZoneFill.material.color.set(0xffffff); hitZoneFill.material.opacity = 0.025;
+      }
+    } else {
+      hitZone.visible = hitZoneFill.visible = sweetZone.visible = false;
+    }
 
-    drawEnergyMeters();
+    // frecce di mira
+    serveAim.visible = false;
+    shotAim.visible = false;
+    if (me && s.phase === 'serving' && s.serverId === myId && s.ball) {
+      const flip = (myTeam === 'B') ? -1 : 1;
+      const ax = (joy.x || 0) * flip;
+      const box = s.serveBox || { xSign: 1, zSign: me.team === 'A' ? 1 : -1 };
+      pointAim(serveAim, me.x, me.z, box.xSign * (COURT.SINGLES_HALF_W * 0.55) + ax * 1.6, box.zSign * (COURT.SERVICE_Z - 1.0));
+    }
+    if (me && charging && s.phase === 'rally') {
+      const flip = (myTeam === 'B') ? -1 : 1;
+      const ax = (joy.x || 0) * flip;
+      const opp = me.team === 'A' ? 1 : -1;
+      pointAim(shotAim, me.x, me.z, me.x + ax * 7, me.z + opp * 9);
+    }
+
+    // palla + traiettoria
+    updateBall3D(s.ball, now);
+    if (s.ball && s.phase === 'rally') updatePredictedPath(s.ball);
+    else { updatePredictedPath(null); }
+
+    updateCamera(s, dt);
+  } else {
+    // attesa in lobby: lenta panoramica
+    const t = now / 9000;
+    camera.position.set(Math.sin(t) * 16, 8.5, Math.cos(t) * 18);
+    camera.lookAt(0, 0.5, 0);
   }
 
-  ctx.restore();
+  stepParticles(dt);
+  stepPops(dt);
   renderHud();
-
+  renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
 requestAnimationFrame((t) => { lastFrameT = t; frame(t); });
-
-function drawServeAim(s) {
-  const sv = s.players.find(p => p.id === myId);
-  if (!sv) return;
-  const flip = (myTeam === 'B') ? -1 : 1;
-  const ax = (joy.x || 0) * flip;
-  const opp = sv.team === 'A' ? 1 : -1;
-  // punta al box di servizio diagonale valido (coerente col server)
-  const box = s.serveBox || { xSign: opp > 0 ? 1 : -1, zSign: opp };
-  const tx = box.xSign * (COURT.SINGLES_HALF_W * 0.55) + ax * 1.6;
-  const tz = box.zSign * (COURT.SERVICE_Z - 1.0);
-  drawAimArrow(sv.x, sv.z, tx, tz, '#ffd166');
-}
-
-// freccia di mira per i colpi nel rally: direzione = inclinazione joystick verso il campo avversario
-function drawShotAim(s) {
-  const me = s.players.find(p => p.id === myId);
-  if (!me) return;
-  const flip = (myTeam === 'B') ? -1 : 1;
-  const ax = (joy.x || 0) * flip;
-  const opp = me.team === 'A' ? 1 : -1;
-  const tx = me.x + ax * 7;
-  const tz = me.z + opp * 9;
-  drawAimArrow(me.x, me.z, tx, tz, 'rgba(116,192,252,0.9)');
-}
-
-function drawAimArrow(x0, z0, x1, z1, color) {
-  const a = project(x0, 0.12, z0);
-  const b = project(x1, 0.12, z1);
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 3.5;
-  ctx.setLineDash([10, 6]);
-  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-  ctx.setLineDash([]);
-  const ang = Math.atan2(b.y - a.y, b.x - a.x);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(b.x, b.y);
-  ctx.lineTo(b.x - Math.cos(ang - 0.5) * 15, b.y - Math.sin(ang - 0.5) * 15);
-  ctx.lineTo(b.x - Math.cos(ang + 0.5) * 15, b.y - Math.sin(ang + 0.5) * 15);
-  ctx.closePath(); ctx.fill();
-  ctx.restore();
-}
-
-// =========================================================================
-// Inizializza share url
-// =========================================================================
-document.getElementById('shareUrl').textContent = location.href.split('?')[0];
 </script>
 </body>
 </html>
