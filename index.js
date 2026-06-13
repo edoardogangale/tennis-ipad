@@ -821,10 +821,13 @@ function stepPlayers(dt) {
       p.swingT = Math.max(0, (p.swingT || 0) - dt * 2.5);
       continue;
     }
-    // target velocity da joystick (+30% di velocità massima del giocatore)
+    // target velocity da joystick (+30% di velocità massima del giocatore).
+    // Penalità stamina morbida: piena sopra 0.3, scende al massimo a 0.8× da esausti
+    // (mai un giocatore "bloccato"; sotto è solo un filo più lento).
     const maxSpeed = prof.maxSpeed * PLAYER_SPEED_SCALE;
-    const tvx = p.targetVx * maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
-    const tvz = p.targetVz * maxSpeed * (p.stamina < 0.2 ? 0.6 : 1);
+    const staminaF = 0.8 + 0.2 * Math.min(1, (p.stamina || 0) / 0.3);
+    const tvx = p.targetVx * maxSpeed * staminaF;
+    const tvz = p.targetVz * maxSpeed * staminaF;
 
     // smoothing esponenziale: accelera/decelera in modo morbido e "pesante".
     // In accelerazione usiamo ACCEL_TAU (~0.15s per la velocità max) per una risposta pronta ma graduale.
@@ -852,14 +855,17 @@ function stepPlayers(dt) {
     if (p.team === 'A') p.z = clamp(p.z, -limZ, -0.45);
     else p.z = clamp(p.z, 0.45, limZ);
 
-    // stamina
-    const running = Math.hypot(p.vx, p.vz) > 4.0;
-    const charging = p.charging;
-    if (running) p.stamina -= dt * 0.06;
-    if (charging) p.stamina -= dt * 0.12;
-    // recupero
-    const inBack = Math.abs(p.z) > COURT.BASELINE_Z - 1.5;
-    if (!running && !charging) p.stamina += dt * (inBack ? 0.18 : 0.08);
+    // stamina: cala solo SPRINTANDO davvero (soglia legata alla velocità max, così
+    // non si svuota appena ci si muove) o caricando; recupera in fretta appena rallenti,
+    // anche durante uno scambio. Il recupero supera di molto il consumo: resta un
+    // dettaglio tattico, non una penalità che blocca il gioco.
+    const sprinting = Math.hypot(p.vx, p.vz) > maxSpeed * 0.82;
+    if (sprinting) p.stamina -= dt * 0.04;
+    if (p.charging) p.stamina -= dt * 0.05;
+    if (!sprinting) {
+      const inBack = Math.abs(p.z) > COURT.BASELINE_Z - 1.5;
+      p.stamina += dt * (inBack ? 0.28 : 0.18);
+    }
     p.stamina = clamp(p.stamina, 0, 1);
 
     // anim swing decay (più lento = follow-through leggibile, ~0.4s)

@@ -423,7 +423,9 @@ nip.on('end', () => { joy.x = 0; joy.y = 0; joy.active = false; });
 let lastInputSent = { mx: 0, mz: 0 };
 setInterval(() => {
   const flip = (myTeam === 'B') ? -1 : 1;
-  const mx = joy.x * flip;
+  // La telecamera 3D guarda lungo +z: l'asse X dello schermo è ribaltato rispetto
+  // al mondo, quindi la X del joystick va negata (joystick destra = giocatore destra).
+  const mx = -joy.x * flip;
   const mz = joy.y * flip;
   if (Math.abs(mx - lastInputSent.mx) > 0.04 || Math.abs(mz - lastInputSent.mz) > 0.04
       || (mx === 0 && mz === 0 && (lastInputSent.mx !== 0 || lastInputSent.mz !== 0))) {
@@ -448,7 +450,7 @@ function endShotCharge(emit) {
   if (!emit) return;
   const charge = Math.min(1.5, (performance.now() - cur.startT) / 1000);
   const flip = (myTeam === 'B') ? -1 : 1;
-  const angle = { x: joy.x * flip, y: joy.y * flip };
+  const angle = { x: -joy.x * flip, y: joy.y * flip };
   const useSuper = serverState && serverState.energy && serverState.energy[myTeam] >= 1.0;
   socket.emit('shot', { shot: cur.shot, charge, angle, useSuper });
 }
@@ -520,7 +522,7 @@ function serveUp(e) {
   const charge = Math.min(1.5, (performance.now() - serveCharging.startT) / 1000);
   resetServeCharge();
   const flip = (myTeam === 'B') ? -1 : 1;
-  const angle = { x: joy.x * flip, y: joy.y * flip };
+  const angle = { x: -joy.x * flip, y: joy.y * flip };
   socket.emit('shot', { shot: 'serve', charge, angle, serveType });
 }
 serveGo.addEventListener('pointerdown', serveDown);
@@ -1756,13 +1758,6 @@ function renderHud() {
 // Camera: TV-style dietro la mia metà campo, segue dolcemente palla e giocatore
 // =========================================================================
 function updateCamera(s, dt) {
-  // hook per screenshot/debug: window.dbgCam = {x,y,z,lx,ly,lz}
-  if (window.dbgCam) {
-    const d = window.dbgCam;
-    camera.position.set(d.x, d.y, d.z);
-    camera.lookAt(d.lx || 0, d.ly || 1, d.lz || 0);
-    return;
-  }
   const side = myTeam === 'B' ? -1 : 1; // la mia baseline: z negativo per A
   const ball = s && s.ball;
   const me = s && (s.players || []).find(p => p.id === myId);
@@ -1857,13 +1852,13 @@ function frame(now) {
     shotAim.visible = false;
     if (me && s.phase === 'serving' && s.serverId === myId && s.ball) {
       const flip = (myTeam === 'B') ? -1 : 1;
-      const ax = (joy.x || 0) * flip;
+      const ax = -(joy.x || 0) * flip;
       const box = s.serveBox || { xSign: 1, zSign: me.team === 'A' ? 1 : -1 };
       pointAim(serveAim, me.x, me.z, box.xSign * (COURT.SINGLES_HALF_W * 0.55) + ax * 1.6, box.zSign * (COURT.SERVICE_Z - 1.0));
     }
     if (me && charging && s.phase === 'rally') {
       const flip = (myTeam === 'B') ? -1 : 1;
-      const ax = (joy.x || 0) * flip;
+      const ax = -(joy.x || 0) * flip;
       const opp = me.team === 'A' ? 1 : -1;
       pointAim(shotAim, me.x, me.z, me.x + ax * 7, me.z + opp * 9);
     }
