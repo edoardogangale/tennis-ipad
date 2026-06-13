@@ -431,6 +431,10 @@ function performServe(p, charge, joyAngle, serveType) {
 function performShot(p, shotType, charge, joyAngle, useSuper) {
   const ball = state.ball;
   if (!ball || !ball.inPlay || ball.held) return;
+  // Non puoi colpire due volte di fila la STESSA palla: prima deve toccarla la
+  // squadra avversaria. Blocca lo spam del tasto (multi-colpo sulla stessa presa
+  // + caricamento istantaneo della super). Silenzioso: nessun evento "a vuoto".
+  if (ball.lastHitterTeam === p.team) return;
   // distanza orizzontale palla-giocatore
   const dx = ball.x - p.x;
   const dz = ball.z - p.z;
@@ -1100,6 +1104,7 @@ if (process.env.TENNIS_TEST) {
     state, COURT,
     addPoint, awardPoint, pointLabels,
     stepBall, stepPlayers, setupServe, handleFault,
+    performShot, performServe,
     createScoreState,
   };
 }

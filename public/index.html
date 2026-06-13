@@ -237,6 +237,22 @@
 'use strict';
 
 // =========================================================================
+// Blocca lo ZOOM da touch (doppio-tap e pinch). Su iPad/iOS Safari il meta
+// "user-scalable=no" viene ignorato: tap ripetuti sui pulsanti ingrandivano la
+// pagina (specie in basso a destra) costringendo a ricaricare. Qui annulliamo
+// il gesto di zoom senza toccare i controlli (che agiscono su pointerdown).
+// =========================================================================
+['gesturestart', 'gesturechange', 'gestureend'].forEach((ev) =>
+  document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+let __lastTouchEndT = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - __lastTouchEndT < 350) e.preventDefault(); // doppio-tap ravvicinato → niente zoom
+  __lastTouchEndT = now;
+}, { passive: false });
+
+// =========================================================================
 // Costanti condivise col server (devono combaciare!)
 // =========================================================================
 const COURT = {
