@@ -1,0 +1,16 @@
+# Ambienti virtuali Python
+.venv/
+venv/
+env/
+
+# Cache e bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Grafici generati dalle esecuzioni (sono output, non sorgente).
+# Manteniamo la cartella ma ignoriamo i PNG prodotti.
+output/*.png
+
+# File di sistema
+.DS_Store

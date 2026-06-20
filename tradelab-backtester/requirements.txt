@@ -1,0 +1,9 @@
+# Dipendenze del backtester TradeLab.
+# Installazione consigliata dentro un ambiente virtuale (vedi README):
+#   python -m venv .venv && source .venv/bin/activate
+#   pip install -r requirements.txt
+
+pandas>=2.0       # manipolazione dati e serie temporali
+numpy>=1.24       # calcoli numerici vettoriali
+yfinance>=0.2.40  # download dei prezzi storici da Yahoo Finance
+matplotlib>=3.7   # generazione dei grafici PNG
