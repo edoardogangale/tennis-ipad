@@ -169,6 +169,11 @@ def _from_yfinance(ticker: str, start_ts: pd.Timestamp, end_ts: pd.Timestamp) ->
             "yfinance non è installato. Esegui: pip install -r requirements.txt"
         ) from exc
 
+    # yfinance stampa messaggi molto rumorosi quando la rete fallisce: li
+    # silenziamo, tanto l'esito lo gestiamo noi con un DataError leggibile.
+    import logging
+    logging.getLogger("yfinance").setLevel(logging.CRITICAL)
+
     # auto_adjust=True -> usiamo i prezzi AGGIUSTATI per dividendi e split.
     # Perché è importante in un backtest: nel giorno dello stacco del dividendo
     # il prezzo "salta" giù di colpo; senza aggiustamento questo apparirebbe

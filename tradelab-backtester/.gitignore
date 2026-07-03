@@ -8,9 +8,10 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 
-# Grafici generati dalle esecuzioni (sono output, non sorgente).
-# Manteniamo la cartella ma ignoriamo i PNG prodotti.
+# Output generato dalle esecuzioni (grafici e log): non è codice sorgente.
+# Manteniamo la cartella (output/.gitkeep) ma ignoriamo i file prodotti.
 output/*.png
+output/*.csv
 
 # File di sistema
 .DS_Store
