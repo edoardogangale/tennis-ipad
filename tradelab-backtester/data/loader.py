@@ -240,12 +240,17 @@ def generate_synthetic_ohlcv(
     if n < 2:
         raise DataError("Intervallo troppo corto per generare dati sintetici.")
 
-    # Drift a regimi alternati. ~0.0006 al giorno * 252 giorni ≈ +/-15% annuo.
+    # Drift = tendenza di fondo LEGGERMENTE POSITIVA (come i mercati azionari nel
+    # lungo periodo) + un'alternanza di "regimi" toro/orso che fa incrociare le
+    # medie mobili. Così la serie sale nel tempo (come farebbe un indice reale)
+    # ma con fasi su e giù, che è proprio ciò che serve per provare la strategia.
+    base_drift = 0.0004        # ~ +10% annuo di tendenza di fondo
+    regime_amplitude = 0.0008  # oscillazione toro/orso attorno alla tendenza
     drift = np.empty(n)
     regime_len = max(60, n // 8)  # ~8 fasi alternate sull'intero periodo
     sign = 1.0
     for i in range(0, n, regime_len):
-        drift[i : i + regime_len] = sign * 0.0006
+        drift[i : i + regime_len] = base_drift + sign * regime_amplitude
         sign *= -1.0
 
     daily_vol = 0.01  # ~1% al giorno -> ~16% annuo (sqrt(252)*1%), realistico
