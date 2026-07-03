@@ -227,67 +227,85 @@ def compute_metrics(
 # ---------------------------------------------------------------------------
 # Formattazione leggibile con spiegazioni
 # ---------------------------------------------------------------------------
+def _fmt_pct(x: float) -> str:
+    return "n/a" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x * 100:,.2f}%"
+
+
+def _fmt_num(x: float, dec: int = 2) -> str:
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return "n/a"
+    if np.isinf(x):
+        return "∞"
+    return f"{x:,.{dec}f}"
+
+
+def _fmt_money(x: float) -> str:
+    return f"{x:,.2f}"
+
+
+def metrics_table(
+    left: PerformanceMetrics,
+    right: PerformanceMetrics,
+    left_label: str,
+    right_label: str,
+    title: str,
+) -> str:
+    """
+    Costruisce la TABELLA di confronto tra due set di metriche (due colonne),
+    con una riga di spiegazione sotto ciascuna metrica. È una funzione generica:
+    non aggiunge verdetti (quelli li mette chi chiama), così la riusiamo sia per
+    "Strategia vs Buy & Hold" sia per "Train vs Test" senza duplicare codice.
+    """
+    lines = []
+    lines.append("=" * 74)
+    lines.append(title.center(74))
+    lines.append("=" * 74)
+    lines.append(f"{'METRICA':<26}{left_label:>18}{right_label:>18}")
+    lines.append("-" * 74)
+
+    def row(label: str, l_val: str, r_val: str, explanation: str):
+        lines.append(f"{label:<26}{l_val:>18}{r_val:>18}")
+        lines.append(f"  └ {explanation}")
+
+    row("Anni coperti", _fmt_num(left.years), _fmt_num(right.years),
+        "ampiezza del periodo su cui sono calcolate le metriche.")
+    row("Capitale finale", _fmt_money(left.final_equity), _fmt_money(right.final_equity),
+        "quanto varrebbe il portafoglio partendo dal capitale iniziale.")
+    row("Rendimento totale", _fmt_pct(left.total_return), _fmt_pct(right.total_return),
+        "crescita complessiva sul periodo.")
+    row("CAGR (annuo composto)", _fmt_pct(left.cagr), _fmt_pct(right.cagr),
+        "tasso di crescita medio annuo: rende confrontabili periodi di lunghezza diversa.")
+    row("Volatilità annua", _fmt_pct(left.volatility), _fmt_pct(right.volatility),
+        "quanto oscillano i rendimenti = il rischio. Più bassa è, più stabile.")
+    row("Sharpe ratio", _fmt_num(left.sharpe), _fmt_num(right.sharpe),
+        "rendimento in eccesso per unità di rischio. >1 buono, >2 ottimo, <0 male.")
+    row("Max drawdown", _fmt_pct(left.max_drawdown), _fmt_pct(right.max_drawdown),
+        "la peggior perdita da un picco: il 'dolore' massimo sopportato.")
+    row("Durata max drawdown", f"{left.max_dd_duration_days} gg",
+        f"{right.max_dd_duration_days} gg",
+        "il periodo più lungo passato sotto un massimo prima di recuperarlo.")
+    row("Operazioni chiuse", _fmt_num(left.num_trades, 0), _fmt_num(right.num_trades, 0),
+        "quante compravendite complete (il buy & hold ne fa 0).")
+    row("Win rate", _fmt_pct(left.win_rate), _fmt_pct(right.win_rate),
+        "quota di operazioni chiuse in guadagno. Da leggere col profit factor.")
+    row("Profit factor", _fmt_num(left.profit_factor), _fmt_num(right.profit_factor),
+        "guadagni totali / perdite totali. >1 = guadagna più di quanto perde.")
+    lines.append("-" * 74)
+    return "\n".join(lines)
+
+
 def format_comparison_report(
     strategy: PerformanceMetrics,
     benchmark: PerformanceMetrics,
     title: str = "RISULTATI DEL BACKTEST",
 ) -> str:
     """
-    Produce un report testuale che affianca Strategia e Buy & Hold, con una
-    riga di spiegazione sotto ogni metrica. Restituisce una stringa (così è
-    facile stamparla o salvarla su file).
+    Report "Strategia vs Buy & Hold": la tabella di confronto più un verdetto
+    sintetico e onesto (la strategia ha battuto il semplice comprare e tenere?).
     """
-    def pct(x: float) -> str:
-        return "n/a" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x * 100:,.2f}%"
+    table = metrics_table(strategy, benchmark, "STRATEGIA", "BUY & HOLD", title)
 
-    def num(x: float, dec: int = 2) -> str:
-        if x is None or (isinstance(x, float) and np.isnan(x)):
-            return "n/a"
-        if np.isinf(x):
-            return "∞"
-        return f"{x:,.{dec}f}"
-
-    def money(x: float) -> str:
-        return f"{x:,.2f}"
-
-    lines = []
-    lines.append("=" * 74)
-    lines.append(title.center(74))
-    lines.append("=" * 74)
-    lines.append(f"Periodo coperto: {strategy.years:.2f} anni")
-    lines.append("")
-    header = f"{'METRICA':<26}{'STRATEGIA':>18}{'BUY & HOLD':>18}"
-    lines.append(header)
-    lines.append("-" * 74)
-
-    def row(label: str, s_val: str, b_val: str, explanation: str):
-        lines.append(f"{label:<26}{s_val:>18}{b_val:>18}")
-        lines.append(f"  └ {explanation}")
-
-    row("Capitale finale", money(strategy.final_equity), money(benchmark.final_equity),
-        "quanto varrebbe oggi il portafoglio partendo dal capitale iniziale.")
-    row("Rendimento totale", pct(strategy.total_return), pct(benchmark.total_return),
-        "crescita complessiva sull'intero periodo.")
-    row("CAGR (annuo composto)", pct(strategy.cagr), pct(benchmark.cagr),
-        "tasso di crescita medio annuo: rende confrontabili periodi di lunghezza diversa.")
-    row("Volatilità annua", pct(strategy.volatility), pct(benchmark.volatility),
-        "quanto oscillano i rendimenti = il rischio. Più bassa è, più stabile.")
-    row("Sharpe ratio", num(strategy.sharpe), num(benchmark.sharpe),
-        "rendimento in eccesso per unità di rischio. >1 buono, >2 ottimo, <0 male.")
-    row("Max drawdown", pct(strategy.max_drawdown), pct(benchmark.max_drawdown),
-        "la peggior perdita da un picco: il 'dolore' massimo sopportato.")
-    row("Durata max drawdown", f"{strategy.max_dd_duration_days} gg",
-        f"{benchmark.max_dd_duration_days} gg",
-        "il periodo più lungo passato sotto un massimo prima di recuperarlo.")
-    row("Operazioni chiuse", num(strategy.num_trades, 0), num(benchmark.num_trades, 0),
-        "quante compravendite complete ha fatto la strategia (il B&H ne fa 0).")
-    row("Win rate", pct(strategy.win_rate), pct(benchmark.win_rate),
-        "quota di operazioni chiuse in guadagno. Da leggere col profit factor.")
-    row("Profit factor", num(strategy.profit_factor), num(benchmark.profit_factor),
-        "guadagni totali / perdite totali. >1 = guadagna più di quanto perde.")
-
-    lines.append("-" * 74)
-    # Un verdetto sintetico, onesto: la strategia ha battuto il "compra e tieni"?
+    # Verdetto: confrontiamo il rendimento totale delle due colonne.
     delta = strategy.total_return - benchmark.total_return
     if np.isnan(delta):
         verdetto = "Confronto non disponibile."
@@ -298,9 +316,7 @@ def format_comparison_report(
         verdetto = (f"La strategia ha FATTO PEGGIO del buy & hold di "
                     f"{abs(delta) * 100:,.2f} punti percentuali. Con costi e rischio "
                     f"in più, non ha aggiunto valore su questo periodo.")
-    lines.append(verdetto)
-    lines.append("=" * 74)
-    return "\n".join(lines)
+    return f"{table}\n{verdetto}\n{'=' * 74}"
 
 
 # ---------------------------------------------------------------------------
