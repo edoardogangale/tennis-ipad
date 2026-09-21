@@ -57,7 +57,8 @@ const PLAYER_SPEED_SCALE = 1.4; // velocità massima del giocatore (un filo più
 const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiungere la velocità massima
 const HIT_REACH = 2.9;          // raggio hit zone più stretto: serve precisione nel posizionarsi
 const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
-const SLICE_CURVE = 2.4;        // sidespin dello slice nel RALLY: quanto "gira" la palla in volo
+const SLICE_SIDE_KICK = 5.2;    // slice nel RALLY: spinta laterale (m/s) aggiunta AL RIMBALZO,
+                                // non in volo → la palla vola dritta e poi "sfugge" di lato
 
 const TICK_HZ = 60;
 const NET_HZ = 30;
@@ -307,6 +308,8 @@ function setupServe(keepFault = false) {
     x: sv.x, y: 0.9, z: sv.z,
     vx: 0, vy: 0, vz: 0,
     spin: 0,
+    curve: 0,
+    sideKick: 0,             // deviazione laterale al rimbalzo (slice del rally)
     lastHitter: null,
     lastHitterTeam: null,
     crossedNet: false,
@@ -411,7 +414,8 @@ function performServe(p, charge, joyAngle, serveType) {
   ball.vz = ndz * speed;
   ball.vy = (0.25 - launchY) / tFlight + 0.5 * gEff * tFlight;
   ball.spin = spin;
-  ball.curve = curve;
+  ball.curve = curve;      // il servizio slice mantiene la sua curva in volo
+  ball.sideKick = 0;       // nessuno scatto laterale al rimbalzo: è roba del rally
   ball.held = false;
   ball.inPlay = true;
   ball.lastHitter = sv.id;
@@ -431,14 +435,6 @@ function performServe(p, charge, joyAngle, serveType) {
 // ---------------------------------------------------------------------------
 // Colpi durante rally
 // ---------------------------------------------------------------------------
-// Deriva laterale totale prodotta dal sidespin in T secondi di volo.
-// In volo: vx += curve*5*dt, con curve che decade di ~0.5/s. Integrando due
-// volte: 10*c*(T - 2*(1-e^(-0.5T))). Verificato contro la simulazione reale
-// della traiettoria (errore < 2%), quindi nessun fattore correttivo.
-function curveDrift(c, T) {
-  return 10 * c * (T - 2 * (1 - Math.exp(-0.5 * T)));
-}
-
 function performShot(p, shotType, charge, joyAngle, useSuper) {
   const ball = state.ball;
   if (!ball || !ball.inPlay || ball.held) return;
@@ -536,12 +532,10 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     height = 0.35;
     spin = -0.8; // backspin
   } else if (shotType === 'slice') {
-    // slice controllato: più corto e con poco backspin → resta SEMPRE dentro.
-    // Mira laterale più prudente: la curva in volo aggiunge già spostamento,
-    // quindi teniamo un margine dalla riga per non finire larghi.
+    // slice controllato: più corto e con backspin → rimbalzo basso e rallentato.
+    // La deviazione laterale arriva al rimbalzo (ball.sideKick), non in volo.
     speed = 12 + charge * 5;
     targetZ = opp * (COURT.BASELINE_Z * 0.70);
-    targetX *= 0.78;
     height = 0.32;
     spin = -0.35;
   }
@@ -577,28 +571,18 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   speed *= SHOT_SPEED_SCALE;
   speed = Math.min(speed, SPEED_CAP); // tetto fisico per restare nel campo
 
-  // SLICE (solo rally): sidespin marcato. La palla parte spostata verso l'esterno
-  // e RIENTRA curvando durante il volo. Stimiamo la deriva laterale che la curva
-  // produrrà e spostiamo il punto di MIRA in senso opposto: l'effetto è vistoso
-  // ma l'atterraggio resta sul bersaglio voluto (quindi dentro).
-  let curveAmt = 0;
+  // SLICE (solo rally): in volo la traiettoria è dritta e naturale come gli altri
+  // colpi. Tutto il taglio si scarica AL RIMBALZO: qui calcoliamo solo quanta
+  // spinta laterale dare alla palla quando toccherà terra (vedi stepBall).
+  let sideKick = 0;
   if (shotName === 'slice') {
-    // gira verso dove miri; se non stai angolando, gira dal lato da cui arriva la palla
+    // sfugge verso dove miri; se non stai angolando, dal lato da cui arriva la palla
     const dir = (joyAngle && Math.abs(joyAngle.x) > 0.15) ? Math.sign(joyAngle.x) : sideX;
-    curveAmt = dir * SLICE_CURVE * (0.8 + 0.2 * charge);
+    sideKick = dir * SLICE_SIDE_KICK * (0.75 + 0.25 * charge);
   }
 
-  // calcola velocità per arrivare al target (mira pre-compensata per la curva).
-  // Iteriamo: spostando la mira cambia la distanza e quindi il tempo di volo,
-  // da cui dipende la deriva. Tre passate bastano a far convergere la stima.
-  let aimX = targetX;
-  if (curveAmt) {
-    for (let i = 0; i < 3; i++) {
-      const t = Math.max(0.3, Math.hypot(aimX - p.x, targetZ - p.z) / speed);
-      aimX = clamp(targetX - curveDrift(curveAmt, t), -hwIn - 8, hwIn + 8);
-    }
-  }
-  const dxT = aimX - p.x;
+  // calcola velocità per arrivare al target (mira diretta: niente curva in volo)
+  const dxT = targetX - p.x;
   const dzT = targetZ - p.z;
   const distT = Math.max(0.5, Math.hypot(dxT, dzT));
   const ndx = dxT / distT, ndz = dzT / distT;
@@ -625,7 +609,8 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     }
   }
   ball.spin = spin;
-  ball.curve = curveAmt;
+  ball.curve = 0;          // nessuna curvatura in volo per i colpi del rally
+  ball.sideKick = sideKick; // il taglio dello slice si sente solo dopo il rimbalzo
   ball.lastHitter = p.id;
   ball.lastHitterTeam = p.team;
   ball.crossedNet = false;
@@ -772,6 +757,13 @@ function stepBall(dt) {
     ball.vz += ball.spin * 4.0;
     ball.vy *= (1 - Math.max(0, ball.spin) * 0.15);
     ball.spin *= 0.6;
+    // SLICE: è QUI che si sente il taglio. Toccando terra il sidespin "morde"
+    // e la palla schizza di lato in modo netto, come uno slice vero. L'effetto
+    // si scarica quasi tutto al primo rimbalzo, poi ne resta solo un residuo.
+    if (ball.sideKick) {
+      ball.vx += ball.sideKick;
+      ball.sideKick *= 0.3;
+    }
 
     state.events.push({ type: 'bounce', x: ball.x, z: ball.z, court: state.court });
   }
