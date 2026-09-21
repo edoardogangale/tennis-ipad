@@ -61,9 +61,27 @@ const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona,
 // I valori sono in METRI di deviazione (quanto "scappa" di lato nei ~0.65s dopo
 // il tocco a terra); SLICE_MPS_PER_M li converte nella spinta in m/s da dare al
 // rimbalzo, tenendo conto dell'attrito dell'aria.
+// SCIVOLATA (tasto SLIDE): il giocatore scorre per inerzia oltre il punto in cui
+// ha rilasciato il joystick, come i tennisti veri. Quanto scivola dipende molto
+// dalla superficie: tau = costante di decelerazione (più alta = scivola a lungo),
+// time = durata massima, boost = spinta iniziale, steer = quanta correzione di
+// direzione resta possibile mentre scivola.
+// NB: tau va sempre tenuto sopra il decelTau della superficie, altrimenti
+// scivolare frenerebbe più che non scivolare.
+const SLIDE_PROFILES = {
+  clay:  { tau: 0.70, time: 0.85, boost: 1.25, steer: 0.18 }, // vistosa: lunga e lenta a fermarsi
+  grass: { tau: 0.38, time: 0.60, boost: 1.15, steer: 0.30 }, // breve, erba un po' scivolosa
+  hard:  { tau: 0.34, time: 0.35, boost: 1.06, steer: 0.45 }, // quasi assente: frena subito
+};
+const SLIDE_MIN_SPEED = 2.2;    // sotto questa velocità la scivolata non parte
+const SLIDE_STAMINA = 0.05;     // costo in stamina di ogni scivolata
+
 const SLICE_SIDE_M_LIGHT = 1.5; // colpo poco caricato
 const SLICE_SIDE_M_FULL  = 2.5; // colpo a piena carica
-const SLICE_SIDE_M_SUPER = 3.2; // colpo con la super
+// Con la super la palla viaggia al doppio: una deviazione troppo ampia la faceva
+// schizzare via in modo ingiocabile. Tenuta appena sopra lo slice normale a piena
+// carica (2.5 m), così resta il più tagliato di tutti ma è rispondibile.
+const SLICE_SIDE_M_SUPER = 2.8;
 const SLICE_MPS_PER_M    = 1.67;
 // La palla della super viaggia molto più veloce, quindi l'attrito dell'aria
 // smorza di più la spinta laterale: serve un po' più di spinta per ottenere
@@ -304,7 +322,11 @@ function setupServe(keepFault = false) {
   const standZ = serverFace > 0 ? -(COURT.BASELINE_Z + 0.15) : (COURT.BASELINE_Z + 0.15);
   sv.vx = 0; sv.vz = 0; sv.targetVx = 0; sv.targetVz = 0;
   // azzera le finestre di colpo a inizio punto (niente cerchio verde "fantasma")
-  for (const pl of Object.values(state.players)) pl.canHitUntil = 0;
+  // e le scivolate in corso, che non devono trascinarsi nel punto successivo
+  for (const pl of Object.values(state.players)) {
+    pl.canHitUntil = 0;
+    pl.slideTimer = 0; pl.slideCool = 0; pl.slide = 0;
+  }
 
   // Box di servizio valido (diagonale): x dal lato opposto a dove sta il servitore,
   // z tra la rete e la riga di servizio avversaria.
@@ -884,19 +906,43 @@ function stepPlayers(dt) {
     const tvx = p.targetVx * maxSpeed * staminaF;
     const tvz = p.targetVz * maxSpeed * staminaF;
 
+    // SCIVOLATA: parte se tieni premuto SLIDE mentre sei lanciato. Dà una spinta
+    // iniziale e poi si scorre per inerzia; il cooldown evita scivolate a catena.
+    const sp = SLIDE_PROFILES[state.court] || SLIDE_PROFILES.hard;
+    p.slideCool = Math.max(0, (p.slideCool || 0) - dt);
+    if (p.slideHeld && (p.slideTimer || 0) <= 0 && p.slideCool <= 0
+        && Math.hypot(p.vx, p.vz) > SLIDE_MIN_SPEED) {
+      p.slideTimer = sp.time;
+      p.slideCool = sp.time + 0.35;
+      p.vx *= sp.boost; p.vz *= sp.boost;
+      p.stamina = clamp(p.stamina - SLIDE_STAMINA, 0, 1);
+      state.events.push({ type: 'slide', id: p.id, x: p.x, z: p.z, court: state.court });
+    }
+
     // smoothing esponenziale: accelera/decelera in modo morbido e "pesante".
     // In accelerazione usiamo ACCEL_TAU (~0.15s per la velocità max) per una risposta pronta ma graduale.
     const moving = (Math.abs(tvx) + Math.abs(tvz)) > 0.05;
-    const tau = moving ? ACCEL_TAU : prof.decelTau;
-    const k = 1 - Math.exp(-dt / tau);
-    p.vx += (tvx - p.vx) * k;
-    p.vz += (tvz - p.vz) * k;
+    if ((p.slideTimer || 0) > 0) {
+      // In scivolata si scorre oltre il rilascio del joystick: lo sterzo è molto
+      // ridotto e la velocità cala piano (lentissima sulla terra, subito sul cemento).
+      p.slideTimer -= dt;
+      const ks = 1 - Math.exp(-dt / sp.tau);
+      p.vx += (tvx * sp.steer - p.vx) * ks;
+      p.vz += (tvz * sp.steer - p.vz) * ks;
+      p.slide = Math.min(1, (p.slide || 0) + dt * 6);
+      if (Math.hypot(p.vx, p.vz) < 0.5) p.slideTimer = 0; // si è fermato: fine scivolata
+    } else {
+      const tau = moving ? ACCEL_TAU : prof.decelTau;
+      const k = 1 - Math.exp(-dt / tau);
+      p.vx += (tvx - p.vx) * k;
+      p.vz += (tvz - p.vz) * k;
 
-    // slide: rilevamento cambio direzione brusco
-    p.slide = Math.max(0, p.slide - dt * 2);
-    const dot = (p.lastTargetVx || 0) * tvx + (p.lastTargetVz || 0) * tvz;
-    if (dot < -0.4 && (Math.abs(p.vx) + Math.abs(p.vz)) > 2.0) {
-      p.slide = Math.min(1, p.slide + prof.slide * 0.6);
+      // slide: rilevamento cambio direzione brusco
+      p.slide = Math.max(0, p.slide - dt * 2);
+      const dot = (p.lastTargetVx || 0) * tvx + (p.lastTargetVz || 0) * tvz;
+      if (dot < -0.4 && (Math.abs(p.vx) + Math.abs(p.vz)) > 2.0) {
+        p.slide = Math.min(1, p.slide + prof.slide * 0.6);
+      }
     }
     p.lastTargetVx = tvx; p.lastTargetVz = tvz;
 
@@ -1007,6 +1053,7 @@ setInterval(() => {
       vx: round(p.vx), vz: round(p.vz),
       stamina: round(p.stamina, 1000),
       slide: round(p.slide, 1000),
+      sliding: (p.slideTimer || 0) > 0,
       swingT: round(p.swingT, 1000),
       charging: !!p.charging,
       chargeT: round(p.chargeT, 1000),
@@ -1059,6 +1106,7 @@ io.on('connection', (socket) => {
       x: 0, z: 0, vx: 0, vz: 0,
       targetVx: 0, targetVz: 0,
       stamina: 1.0, slide: 0,
+      slideHeld: false, slideTimer: 0, slideCool: 0,
       swingT: 0, lastSwing: 0,
       canHitUntil: 0,
       charging: false, chargeT: 0,
@@ -1086,6 +1134,13 @@ io.on('connection', (socket) => {
       state.court = court;
       io.emit('lobby', { count: activePlayers().length, court: state.court, mode: gameMode() });
     }
+  });
+
+  // tasto SLIDE tenuto premuto / rilasciato
+  socket.on('slide', ({ on }) => {
+    const p = state.players[socket.id];
+    if (!p) return;
+    p.slideHeld = !!on;
   });
 
   socket.on('input', ({ mx, mz }) => {

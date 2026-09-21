@@ -96,6 +96,19 @@
   /* ============ CONTROLS ============ */
   #joy { position: absolute; left: 20px; bottom: 20px; width: 208px; height: 208px; z-index: 25; }
   .joy-base { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 70%); border: 2px dashed rgba(255,255,255,0.18); pointer-events: none; }
+  /* Tasto SCIVOLATA: sopra il joystick, cioè dalla parte del pollice che muove
+     il giocatore e ben lontano dal rombo dei colpi a destra. */
+  #slideBtn { position: absolute; left: 26px; bottom: 240px; width: 84px; height: 84px;
+    border-radius: 50%; z-index: 25; display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 11px; letter-spacing: 0.08em; color: #fff;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.6); cursor: pointer; touch-action: none;
+    background: radial-gradient(circle at 30% 30%, #ffd98a, #c97f1b);
+    border: 2px solid rgba(255,255,255,0.28);
+    box-shadow: 0 8px 22px rgba(0,0,0,0.5), inset 0 -4px 8px rgba(0,0,0,0.25), inset 0 2px 4px rgba(255,255,255,0.25);
+    transition: transform 0.08s; }
+  #slideBtn::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; }
+  #slideBtn.held { transform: scale(0.92); filter: brightness(1.3); }
+
   /* Rombo dei colpi: contenitore allargato così i pulsanti più grandi restano
      ben distanziati (nessuna sovrapposizione, nemmeno delle aree touch). */
   #shots { position: absolute; right: 20px; bottom: 20px; width: 260px; height: 260px; z-index: 25; }
@@ -136,6 +149,8 @@
     #shots { width: 212px; height: 212px; }
     .sb { width: 80px; height: 80px; font-size: 11px; }
     .sb::before { inset: -5px; }
+    #slideBtn { left: 22px; bottom: 198px; width: 72px; height: 72px; font-size: 10px; }
+    #slideBtn::before { inset: -5px; }
   }
 
   /* ============ SERVE PANEL ============ */
@@ -216,6 +231,7 @@
 <div id="energyOpp" class="energy"><div class="efill"></div></div>
 
 <div id="joy"><div class="joy-base"></div></div>
+<div id="slideBtn">SLIDE</div>
 <div id="shots">
   <div class="super-ring"></div>
   <div class="sb smash" data-shot="drive">SMASH</div>
@@ -304,6 +320,15 @@ const TEAM_COLOR = {
 };
 
 const SHOT_COLORS = { drive: '#ff6b6b', smash: '#ff3030', lob: '#69db7c', drop: '#ffffff', slice: '#74c0fc', serve: '#ffd166', volley: '#ffe066' };
+
+// Polvere sollevata durante la scivolata: nuvola di terra rossa vistosa sulla
+// terra battuta, qualche filo d'erba sull'erba, appena un velo sul cemento.
+// n = particelle per emissione, p = probabilità per frame, v = spinta iniziale.
+const SLIDE_DUST = {
+  clay:  { n: 3, p: 0.75, v: 1.8 },
+  grass: { n: 1, p: 0.45, v: 1.1 },
+  hard:  { n: 1, p: 0.20, v: 0.9 },
+};
 
 // =========================================================================
 // Socket + stato di rete
@@ -505,8 +530,26 @@ shotEls.forEach((el) => {
     }, 100);
   });
 });
-window.addEventListener('pointerup', () => endShotCharge(true));
-window.addEventListener('pointercancel', () => endShotCharge(true));
+// =========================================================================
+// Tasto SCIVOLATA: tenuto premuto mentre corri, il giocatore scivola.
+// =========================================================================
+const slideBtn = document.getElementById('slideBtn');
+let slideOn = false;
+function setSlide(on) {
+  if (on === slideOn) return;
+  slideOn = on;
+  slideBtn.classList.toggle('held', on);
+  socket.emit('slide', { on });
+}
+slideBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); setSlide(true); });
+window.addEventListener('pointerup', () => setSlide(false));
+window.addEventListener('pointercancel', () => setSlide(false));
+
+// Il rilascio del tasto scivolata non deve far partire un colpo in carica:
+// è un comando di movimento, non di colpo.
+const notSlide = (e) => !(e.target === slideBtn || (e.target && e.target.id === 'slideBtn'));
+window.addEventListener('pointerup', (e) => { if (notSlide(e)) endShotCharge(true); });
+window.addEventListener('pointercancel', (e) => { if (notSlide(e)) endShotCharge(true); });
 
 document.querySelectorAll('.emote').forEach((el) => {
   el.addEventListener('pointerdown', (e) => {
@@ -561,8 +604,8 @@ function serveUp(e) {
   socket.emit('shot', { shot: 'serve', charge, angle, serveType });
 }
 serveGo.addEventListener('pointerdown', serveDown);
-window.addEventListener('pointerup', serveUp);
-window.addEventListener('pointercancel', serveUp);
+window.addEventListener('pointerup', (e) => { if (notSlide(e)) serveUp(e); });
+window.addEventListener('pointercancel', (e) => { if (notSlide(e)) serveUp(e); });
 
 // =========================================================================
 // Audio: effetti sintetizzati (nessun asset), sbloccati al primo tocco
@@ -1156,7 +1199,8 @@ function getAnim(id) {
       run: Math.random() * 6, breath: Math.random() * 6, swing: 0, speedN: 0,
       splitT: 0, celeT: 0, dejT: 0,
       shot: 'drive', sideX: 1,
-      turn: 0, // rotazione fluida del busto
+      turn: 0,
+      slideLean: 0, // inclinazione della scivolata, smussata nel tempo // rotazione fluida del busto
     };
   }
   return a;
@@ -1235,7 +1279,13 @@ function updatePlayer3D(p, dt) {
   const faceY = p.team === 'A' ? 0 : Math.PI;
   // busto abbassato dal crouch (le gambe si piegano)
   m.body.position.y = -crouch;
-  m.body.rotation.x = a.speedN * 0.14 + slump * 0.30; // inclinazione in corsa / spalle giù
+  // SCIVOLATA: il corpo si inclina di lato verso la direzione in cui scivola e
+  // si appoggia un po' all'indietro, come chi pianta i piedi e scorre.
+  a.slideLean += ((p.sliding ? 1 : 0) - a.slideLean) * Math.min(1, dt * 8);
+  const rotY = faceY + a.turn;
+  const latLocal = (p.vx || 0) * Math.cos(rotY) - (p.vz || 0) * Math.sin(rotY);
+  m.body.rotation.z = Math.max(-0.45, Math.min(0.45, -latLocal * 0.055 * a.slideLean));
+  m.body.rotation.x = a.speedN * 0.14 + slump * 0.30 - a.slideLean * 0.15;
 
   // lato del colpo: in locale, la racchetta è a -x. fh ⇔ palla sul lato racchetta.
   const teamSign = p.team === 'A' ? 1 : -1;
@@ -1351,8 +1401,21 @@ function updatePlayer3D(p, dt) {
     ring.material.opacity = 0.45 + chargeN * 0.45;
   } else ring.visible = false;
 
-  // scia di scivolata sulla terra
-  if ((p.slide || 0) > 0.3 && serverState && serverState.court === 'clay' && Math.random() < 0.35) {
+  // Polvere della scivolata: emessa sotto i piedi, un filo dietro rispetto alla
+  // direzione di scorrimento. Abbondante sulla terra rossa, appena accennata
+  // sul cemento (vedi SLIDE_DUST).
+  const courtKey = (serverState && serverState.court) || 'hard';
+  if (p.sliding) {
+    const d = SLIDE_DUST[courtKey] || SLIDE_DUST.hard;
+    if (Math.random() < d.p) {
+      const theme = COURT_THEMES[courtKey] || COURT_THEMES.hard;
+      const vlen = Math.hypot(p.vx || 0, p.vz || 0) || 1;
+      const bx = p.x - (p.vx || 0) / vlen * 0.35;
+      const bz = p.z - (p.vz || 0) / vlen * 0.35;
+      spawnBurst(bx, 0.05, bz, theme.particle, d.n, d.v);
+    }
+  } else if ((p.slide || 0) > 0.3 && courtKey === 'clay' && Math.random() < 0.35) {
+    // scia leggera anche sui cambi di direzione bruschi (comportamento già esistente)
     spawnBurst(p.x, 0.06, p.z, COURT_THEMES.clay.particle, 2, 1.2);
   }
 }
@@ -1664,6 +1727,13 @@ function processEvents(events) {
       addClayMark(ev.x, ev.z);
       ballSquash = 1;
       sfxBounce();
+    } else if (ev.type === 'slide') {
+      // sbuffo iniziale allo scatto della scivolata (poi la scia continua
+      // frame per frame finché il giocatore scorre)
+      const theme = COURT_THEMES[ev.court] || COURT_THEMES.hard;
+      const d = SLIDE_DUST[ev.court] || SLIDE_DUST.hard;
+      spawnBurst(ev.x, 0.06, ev.z, theme.particle, d.n * 3, d.v * 1.4);
+      if (ev.court === 'clay') addClayMark(ev.x, ev.z);
     } else if (ev.type === 'out') {
       toast('OUT!', 'red', 900);
       flash(0.3); vignette('rgba(255,50,50,0.55)', 400);
