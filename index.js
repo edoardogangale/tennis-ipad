@@ -57,8 +57,18 @@ const PLAYER_SPEED_SCALE = 1.4; // velocità massima del giocatore (un filo più
 const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiungere la velocità massima
 const HIT_REACH = 2.9;          // raggio hit zone più stretto: serve precisione nel posizionarsi
 const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
-const SLICE_SIDE_KICK = 5.2;    // slice nel RALLY: spinta laterale (m/s) aggiunta AL RIMBALZO,
-                                // non in volo → la palla vola dritta e poi "sfugge" di lato
+// Slice nel RALLY: la palla vola dritta e devia lateralmente DOPO il rimbalzo.
+// I valori sono in METRI di deviazione (quanto "scappa" di lato nei ~0.65s dopo
+// il tocco a terra); SLICE_MPS_PER_M li converte nella spinta in m/s da dare al
+// rimbalzo, tenendo conto dell'attrito dell'aria.
+const SLICE_SIDE_M_LIGHT = 1.5; // colpo poco caricato
+const SLICE_SIDE_M_FULL  = 2.5; // colpo a piena carica
+const SLICE_SIDE_M_SUPER = 3.2; // colpo con la super
+const SLICE_MPS_PER_M    = 1.67;
+// La palla della super viaggia molto più veloce, quindi l'attrito dell'aria
+// smorza di più la spinta laterale: serve un po' più di spinta per ottenere
+// gli stessi metri di deviazione.
+const SLICE_SUPER_COMP   = 1.16;
 
 const TICK_HZ = 60;
 const NET_HZ = 30;
@@ -578,7 +588,10 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   if (shotName === 'slice') {
     // sfugge verso dove miri; se non stai angolando, dal lato da cui arriva la palla
     const dir = (joyAngle && Math.abs(joyAngle.x) > 0.15) ? Math.sign(joyAngle.x) : sideX;
-    sideKick = dir * SLICE_SIDE_KICK * (0.75 + 0.25 * charge);
+    const meters = teamEnergyFull
+      ? SLICE_SIDE_M_SUPER
+      : SLICE_SIDE_M_LIGHT + (SLICE_SIDE_M_FULL - SLICE_SIDE_M_LIGHT) * charge;
+    sideKick = dir * meters * SLICE_MPS_PER_M * (teamEnergyFull ? SLICE_SUPER_COMP : 1);
   }
 
   // calcola velocità per arrivare al target (mira diretta: niente curva in volo)
