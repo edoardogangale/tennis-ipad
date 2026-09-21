@@ -498,12 +498,18 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     return;
   }
 
+  // La palla in arrivo era un LOB: resta in aria a lungo, quindi chi risponde ha
+  // tutto il tempo di posizionarsi. Il colpo esce più preciso (timing perfetto
+  // molto più facile, mai "in ritardo") e più potente (bonus sotto).
+  const afterLob = ball.type === 'lob';
+
   // timing: in base alla distanza dal centro player
   let timing;
-  const tightWin = Math.max(0.35, 0.7 - state.rallyCount * 0.02);
+  let tightWin = Math.max(0.35, 0.7 - state.rallyCount * 0.02);
+  if (afterLob) tightWin *= 1.9;
   if (distH < tightWin) timing = 'perfect';
   else if (distH < REACH * 0.85) timing = 'good';
-  else timing = 'late';
+  else timing = afterLob ? 'good' : 'late';
 
   // applica super
   const teamEnergyFull = state.energy[p.team] >= 1.0 && useSuper;
@@ -554,7 +560,9 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     spin = 0.5;
   } else if (shotType === 'lob') {
     speed = 11 + charge * 5;
-    targetZ = opp * (COURT.BASELINE_Z * 1.0 - Math.random() * 0.7); // profondo, vicino alla riga
+    // Mira oltre la riga per compensare l'attrito dell'aria, che su una palla
+    // lenta e molto alta mangia parecchi metri: atterra vicino al fondo campo.
+    targetZ = opp * (COURT.BASELINE_Z * 1.14 - Math.random() * 0.6);
     height = 0.9;
     vyBoost = 2; // l'arco alto nasce già dalla bassa velocità (tempo di volo lungo)
     spin = 0.3;
@@ -571,6 +579,9 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     height = 0.32;
     spin = -0.35;
   }
+
+  // Dopo un lob hai avuto tutto il tempo di piazzarti e caricare: colpo più forte.
+  if (afterLob) speed *= 1.15;
 
   // bonus super: il doppio della velocità + bersaglio più corto (a doppia
   // velocità servirebbe troppo campo, così la bordata resta comunque dentro).
