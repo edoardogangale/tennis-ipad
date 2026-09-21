@@ -57,25 +57,20 @@ const PLAYER_SPEED_SCALE = 1.4; // velocità massima del giocatore (un filo più
 const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiungere la velocità massima
 const HIT_REACH = 2.9;          // raggio hit zone più stretto: serve precisione nel posizionarsi
 const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
+// Intervallo minimo tra due colpi dello stesso giocatore: evita che due giocatori
+// a rete, spammando il tasto, si rimbalzino la palla all'infinito.
+const SHOT_COOLDOWN_MS = 280;
+
+// Easter egg: chi entra con questo nome gioca potenziato (velocità doppia e
+// colpi più forti). Confronto senza distinzione di maiuscole e spazi.
+const BOOST_NAME = 'embrando';
+const BOOST_SPEED = 2.0;        // velocità di movimento
+const BOOST_POWER = 1.5;        // potenza dei colpi
+
 // Slice nel RALLY: la palla vola dritta e devia lateralmente DOPO il rimbalzo.
 // I valori sono in METRI di deviazione (quanto "scappa" di lato nei ~0.65s dopo
 // il tocco a terra); SLICE_MPS_PER_M li converte nella spinta in m/s da dare al
 // rimbalzo, tenendo conto dell'attrito dell'aria.
-// SCIVOLATA (tasto SLIDE): il giocatore scorre per inerzia oltre il punto in cui
-// ha rilasciato il joystick, come i tennisti veri. Quanto scivola dipende molto
-// dalla superficie: tau = costante di decelerazione (più alta = scivola a lungo),
-// time = durata massima, boost = spinta iniziale, steer = quanta correzione di
-// direzione resta possibile mentre scivola.
-// NB: tau va sempre tenuto sopra il decelTau della superficie, altrimenti
-// scivolare frenerebbe più che non scivolare.
-const SLIDE_PROFILES = {
-  clay:  { tau: 0.70, time: 0.85, boost: 1.25, steer: 0.18 }, // vistosa: lunga e lenta a fermarsi
-  grass: { tau: 0.38, time: 0.60, boost: 1.15, steer: 0.30 }, // breve, erba un po' scivolosa
-  hard:  { tau: 0.34, time: 0.35, boost: 1.06, steer: 0.45 }, // quasi assente: frena subito
-};
-const SLIDE_MIN_SPEED = 2.2;    // sotto questa velocità la scivolata non parte
-const SLIDE_STAMINA = 0.05;     // costo in stamina di ogni scivolata
-
 const SLICE_SIDE_M_LIGHT = 1.5; // colpo poco caricato
 const SLICE_SIDE_M_FULL  = 2.5; // colpo a piena carica
 // Con la super la palla viaggia al doppio: una deviazione troppo ampia la faceva
@@ -325,7 +320,7 @@ function setupServe(keepFault = false) {
   // e le scivolate in corso, che non devono trascinarsi nel punto successivo
   for (const pl of Object.values(state.players)) {
     pl.canHitUntil = 0;
-    pl.slideTimer = 0; pl.slideCool = 0; pl.slide = 0;
+    pl.slide = 0;
   }
 
   // Box di servizio valido (diagonale): x dal lato opposto a dove sta il servitore,
@@ -474,6 +469,12 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   // squadra avversaria. Blocca lo spam del tasto (multi-colpo sulla stessa presa
   // + caricamento istantaneo della super). Silenzioso: nessun evento "a vuoto".
   if (ball.lastHitterTeam === p.team) return;
+  // Intervallo minimo tra due colpi dello stesso giocatore.
+  if (Date.now() - (p.lastSwing || 0) < SHOT_COOLDOWN_MS) return;
+  // La palla deve essere passata dalla TUA parte: non si può colpire oltre la
+  // rete una palla che l'avversario ha appena giocato. Senza questa regola due
+  // giocatori a rete si rimbalzavano la palla all'infinito.
+  if (!ball.crossedNet) return;
   // distanza orizzontale palla-giocatore
   const dx = ball.x - p.x;
   const dz = ball.z - p.z;
@@ -562,7 +563,9 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     speed = 11 + charge * 5;
     // Mira oltre la riga per compensare l'attrito dell'aria, che su una palla
     // lenta e molto alta mangia parecchi metri: atterra vicino al fondo campo.
-    targetZ = opp * (COURT.BASELINE_Z * 1.14 - Math.random() * 0.6);
+    // Con i colpi potenziati la palla perde molto meno per strada, quindi si
+    // mira più corto, altrimenti il lob finirebbe lungo.
+    targetZ = opp * (COURT.BASELINE_Z * (p.boosted ? 0.88 : 1.14) - Math.random() * 0.6);
     height = 0.9;
     vyBoost = 2; // l'arco alto nasce già dalla bassa velocità (tempo di volo lungo)
     spin = 0.3;
@@ -603,16 +606,23 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
 
   // ANGOLO: a stecca piena si tira fino alla riga. Timing pulito = resta dentro
   // (anche stretto); preso male (late) + angolo eccessivo = ESCE (rischio/abilità).
+  // I colpi potenziati viaggiano più veloci, quindi l'aria li sposta meno verso
+  // l'interno e atterrano più vicini al punto mirato: si mira un filo più stretto
+  // per non finire larghi (altrimenti il bonus farebbe sbagliare più colpi).
+  const aimF = p.boosted ? 0.86 : 1;
   if (timing === 'perfect') {
-    targetX = clamp(targetX, -hwIn * 1.08, hwIn * 1.08);
+    targetX = clamp(targetX, -hwIn * 1.08 * aimF, hwIn * 1.08 * aimF);
   } else if (timing === 'good') {
-    targetX = clamp(targetX, -hwIn * 0.98, hwIn * 0.98);
+    targetX = clamp(targetX, -hwIn * 0.98 * aimF, hwIn * 0.98 * aimF);
   } else { // late
     targetX = clamp(targetX, -(hwIn + 2.6), hwIn + 2.6);
   }
 
   speed *= SHOT_SPEED_SCALE;
-  speed = Math.min(speed, SPEED_CAP); // tetto fisico per restare nel campo
+  if (p.boosted) speed *= BOOST_POWER;
+  // tetto fisico per restare nel campo; sale col potenziamento, altrimenti si
+  // mangerebbe tutto il bonus sui colpi già veloci.
+  speed = Math.min(speed, SPEED_CAP * (p.boosted ? BOOST_POWER : 1));
 
   // SLICE (solo rally): in volo la traiettoria è dritta e naturale come gli altri
   // colpi. Tutto il taglio si scarica AL RIMBALZO: qui calcoliamo solo quanta
@@ -659,7 +669,10 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   ball.sideKick = sideKick; // il taglio dello slice si sente solo dopo il rimbalzo
   ball.lastHitter = p.id;
   ball.lastHitterTeam = p.team;
-  ball.crossedNet = false;
+  // Se il colpo parte già oltre la rete (giocatore incollato al nastro) la palla
+  // è di fatto passata: senza questo l'avversario non potrebbe mai giocarla,
+  // perché non attraverserebbe più z=0.
+  ball.crossedNet = opp > 0 ? ball.z > 0 : ball.z < 0;
   ball.bounces = 0;
   ball.bouncedSide = null;
   ball.type = shotName;
@@ -886,6 +899,17 @@ function awardPoint(team, reason) {
 // ---------------------------------------------------------------------------
 // Movimento giocatori
 // ---------------------------------------------------------------------------
+// true se p fa parte della squadra che RICEVE e il servizio non ha ancora
+// rimbalzato: in quella finestra non può superare la riga di servizio.
+function isReceiverWaitingServe(p) {
+  const sv = state.players[state.serverId];
+  if (!sv || p.team === sv.team) return false;
+  if (state.phase === 'serving') return true;
+  const b = state.ball;
+  return !!(state.phase === 'rally' && b && b.inPlay && !b.held
+    && b.type === 'serve' && b.bounces === 0);
+}
+
 function stepPlayers(dt) {
   const prof = COURT_PROFILES[state.court];
   for (const p of Object.values(state.players)) {
@@ -912,37 +936,15 @@ function stepPlayers(dt) {
     // target velocity da joystick (+30% di velocità massima del giocatore).
     // Penalità stamina morbida: piena sopra 0.3, scende al massimo a 0.8× da esausti
     // (mai un giocatore "bloccato"; sotto è solo un filo più lento).
-    const maxSpeed = prof.maxSpeed * PLAYER_SPEED_SCALE;
+    const maxSpeed = prof.maxSpeed * PLAYER_SPEED_SCALE * (p.boosted ? BOOST_SPEED : 1);
     const staminaF = 0.8 + 0.2 * Math.min(1, (p.stamina || 0) / 0.3);
     const tvx = p.targetVx * maxSpeed * staminaF;
     const tvz = p.targetVz * maxSpeed * staminaF;
 
-    // SCIVOLATA: parte se tieni premuto SLIDE mentre sei lanciato. Dà una spinta
-    // iniziale e poi si scorre per inerzia; il cooldown evita scivolate a catena.
-    const sp = SLIDE_PROFILES[state.court] || SLIDE_PROFILES.hard;
-    p.slideCool = Math.max(0, (p.slideCool || 0) - dt);
-    if (p.slideHeld && (p.slideTimer || 0) <= 0 && p.slideCool <= 0
-        && Math.hypot(p.vx, p.vz) > SLIDE_MIN_SPEED) {
-      p.slideTimer = sp.time;
-      p.slideCool = sp.time + 0.35;
-      p.vx *= sp.boost; p.vz *= sp.boost;
-      p.stamina = clamp(p.stamina - SLIDE_STAMINA, 0, 1);
-      state.events.push({ type: 'slide', id: p.id, x: p.x, z: p.z, court: state.court });
-    }
-
     // smoothing esponenziale: accelera/decelera in modo morbido e "pesante".
     // In accelerazione usiamo ACCEL_TAU (~0.15s per la velocità max) per una risposta pronta ma graduale.
     const moving = (Math.abs(tvx) + Math.abs(tvz)) > 0.05;
-    if ((p.slideTimer || 0) > 0) {
-      // In scivolata si scorre oltre il rilascio del joystick: lo sterzo è molto
-      // ridotto e la velocità cala piano (lentissima sulla terra, subito sul cemento).
-      p.slideTimer -= dt;
-      const ks = 1 - Math.exp(-dt / sp.tau);
-      p.vx += (tvx * sp.steer - p.vx) * ks;
-      p.vz += (tvz * sp.steer - p.vz) * ks;
-      p.slide = Math.min(1, (p.slide || 0) + dt * 6);
-      if (Math.hypot(p.vx, p.vz) < 0.5) p.slideTimer = 0; // si è fermato: fine scivolata
-    } else {
+    {
       const tau = moving ? ACCEL_TAU : prof.decelTau;
       const k = 1 - Math.exp(-dt / tau);
       p.vx += (tvx - p.vx) * k;
@@ -960,12 +962,16 @@ function stepPlayers(dt) {
     p.x += p.vx * dt;
     p.z += p.vz * dt;
 
-    // limiti campo: ognuno resta nella PROPRIA metà, mai oltre la rete (z=0)
+    // limiti campo: ognuno resta nella PROPRIA metà, mai oltre la rete (z=0).
+    // Chi RICEVE non può avanzare oltre la riga di servizio finché la battuta non
+    // ha rimbalzato: altrimenti andrebbe a rete a prendere il servizio al volo,
+    // rendendo il gioco impossibile per chi serve.
     const limX = COURT.DOUBLES_HALF_W + 2.5;
     const limZ = COURT.BASELINE_Z + 3.0;
     p.x = clamp(p.x, -limX, limX);
-    if (p.team === 'A') p.z = clamp(p.z, -limZ, -0.45);
-    else p.z = clamp(p.z, 0.45, limZ);
+    const nearLim = isReceiverWaitingServe(p) ? COURT.SERVICE_Z : 0.45;
+    if (p.team === 'A') p.z = clamp(p.z, -limZ, -nearLim);
+    else p.z = clamp(p.z, nearLim, limZ);
 
     // stamina: cala solo SPRINTANDO davvero (soglia legata alla velocità max, così
     // non si svuota appena ci si muove) o caricando; recupera in fretta appena rallenti,
@@ -1064,7 +1070,6 @@ setInterval(() => {
       vx: round(p.vx), vz: round(p.vz),
       stamina: round(p.stamina, 1000),
       slide: round(p.slide, 1000),
-      sliding: (p.slideTimer || 0) > 0,
       swingT: round(p.swingT, 1000),
       charging: !!p.charging,
       chargeT: round(p.chargeT, 1000),
@@ -1113,11 +1118,11 @@ io.on('connection', (socket) => {
     const p = {
       id: socket.id,
       name: (name || 'Player ' + state.nameCounter).slice(0, 14),
+      boosted: String(name || '').trim().toLowerCase() === BOOST_NAME,
       team, color: COLORS[colorIdx],
       x: 0, z: 0, vx: 0, vz: 0,
       targetVx: 0, targetVz: 0,
       stamina: 1.0, slide: 0,
-      slideHeld: false, slideTimer: 0, slideCool: 0,
       swingT: 0, lastSwing: 0,
       canHitUntil: 0,
       charging: false, chargeT: 0,
@@ -1129,7 +1134,7 @@ io.on('connection', (socket) => {
     placePlayer(p);
     rebalanceTeams();
     if (!state.serverId) state.serverId = socket.id;
-    socket.emit('joined', { id: socket.id, team, color: p.color });
+    socket.emit('joined', { id: socket.id, team, color: p.color, boosted: p.boosted });
     io.emit('lobby', { count: activePlayers().length, court: state.court, mode: gameMode() });
 
     // se abbiamo almeno 2 giocatori e siamo in lobby → inizia
@@ -1145,13 +1150,6 @@ io.on('connection', (socket) => {
       state.court = court;
       io.emit('lobby', { count: activePlayers().length, court: state.court, mode: gameMode() });
     }
-  });
-
-  // tasto SLIDE tenuto premuto / rilasciato
-  socket.on('slide', ({ on }) => {
-    const p = state.players[socket.id];
-    if (!p) return;
-    p.slideHeld = !!on;
   });
 
   socket.on('input', ({ mx, mz }) => {
