@@ -97,8 +97,8 @@
   #joy { position: absolute; left: 20px; bottom: 20px; width: 208px; height: 208px; z-index: 25; }
   .joy-base { position: absolute; inset: 0; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 70%); border: 2px dashed rgba(255,255,255,0.18); pointer-events: none; }
 
-  /* Schermo intero: compare solo per il giocatore potenziato. Sta in alto a
-     sinistra, sopra al pannello di lobby, lontano da punteggio ed emote. */
+  /* Schermo intero: disponibile per tutti. Sta in alto a sinistra, sopra al
+     pannello di lobby, lontano da punteggio ed emote. */
   #fsBtn { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 6px); left: 8px;
     z-index: 31; display: none; align-items: center; justify-content: center;
     width: 40px; height: 40px; padding: 0; border-radius: 10px; cursor: pointer;
@@ -356,8 +356,6 @@ socket.on('joined', (d) => {
   myTeam = d.team;
   document.getElementById('lobby').classList.add('hidden');
   unlockAudio();
-  // il pulsante schermo intero è riservato al giocatore potenziato
-  if (d.boosted && fsRequest) fsBtn.classList.add('show');
 });
 socket.on('state', (s) => {
   lastState = nextState || s;
@@ -522,12 +520,12 @@ shotEls.forEach((el) => {
   });
 });
 // =========================================================================
-// Schermo intero: riservato al giocatore potenziato (il server ce lo dice al
-// momento dell'ingresso). Nascosto se il browser non supporta l'API, così non
-// resta un pulsante che non fa niente.
+// Schermo intero: disponibile per tutti. Nascosto se il browser non supporta
+// l'API, così non resta un pulsante che non fa niente.
 // =========================================================================
 const fsBtn = document.getElementById('fsBtn');
 const fsRequest = document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen;
+if (fsRequest) fsBtn.classList.add('show');
 function fsActive() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
 function toggleFullscreen() {
   try {
