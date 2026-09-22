@@ -56,8 +56,16 @@ const SUPER_SPEED_MULT = 2.0;   // la super va il doppio
 const SPEED_CAP = 42;           // tetto fisico: oltre, la palla non sta nel campo
 const AIR_DRAG = 0.024;         // attrito in aria (era 0.012): la palla rallenta naturalmente durante il rally
 const GROUND_FRIC_SCALE = 0.85; // attrito a terra: dopo il rimbalzo trattiene meno velocità orizzontale
-const PLAYER_SPEED_SCALE = 1.4; // velocità massima del giocatore (un filo più rapido)
+const PLAYER_SPEED_SCALE = 1.57; // velocità massima del giocatore (+12% circa, accel/decel invariate)
 const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiungere la velocità massima
+// Scivolata AUTOMATICA dopo un colpo a piena corsa: se colpisci mentre sei a velocità
+// massima e continui a tenere il joystick nella stessa direzione, il giocatore scivola
+// per un breve tratto invece di fermarsi di colpo. Più breve e sempre automatica
+// (nessun tasto dedicato), stessa logica del turnTau: erba quasi nulla, terra la più
+// vistosa, cemento via di mezzo.
+const AUTO_SLIDE_SPEED_FRAC = 0.85; // velocità minima al contatto (frazione della max)
+const AUTO_SLIDE_TIME = { clay: 0.26, grass: 0.06, hard: 0.14 };
+const AUTO_SLIDE_TAU = { clay: 1.05, grass: 0.30, hard: 0.62 }; // "morbidezza" della coda
 const HIT_REACH = 2.9;          // raggio hit zone più stretto: serve precisione nel posizionarsi
 const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
 // Intervallo minimo tra due colpi dello stesso giocatore: evita che due giocatori
@@ -324,6 +332,7 @@ function setupServe(keepFault = false) {
   for (const pl of Object.values(state.players)) {
     pl.canHitUntil = 0;
     pl.slide = 0;
+    pl.autoSlideT = 0;
   }
 
   // Box di servizio valido (diagonale): x dal lato opposto a dove sta il servitore,
@@ -714,6 +723,19 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   state.energy[p.team] = Math.min(1, state.energy[p.team] + gain);
   p.lastSwing = Date.now();
   p.lastTiming = timing;
+
+  // Scivolata automatica: colpito a velocità (quasi) massima e joystick ancora
+  // spinto nella stessa direzione del moto → il giocatore "non riesce a fermarsi
+  // di colpo" e scivola un attimo. Se il joystick non è più nella stessa direzione
+  // (o è fermo), non scatta: stepPlayers la annulla comunque al primo frame utile.
+  const profHit = COURT_PROFILES[state.court];
+  const maxSpeedHit = profHit.maxSpeed * PLAYER_SPEED_SCALE * (p.boosted ? BOOST_SPEED : 1);
+  const curSpeedHit = Math.hypot(p.vx || 0, p.vz || 0);
+  const heldSameDir = (p.vx * p.targetVx + p.vz * p.targetVz) > 0
+    && Math.hypot(p.targetVx || 0, p.targetVz || 0) > 0.3;
+  if (curSpeedHit >= maxSpeedHit * AUTO_SLIDE_SPEED_FRAC && heldSameDir) {
+    p.autoSlideT = AUTO_SLIDE_TIME[state.court] || 0.14;
+  }
 }
 
 function pushHitEffect(p, charge, timing, shotName, isSuper, sideX) {
@@ -979,14 +1001,27 @@ function stepPlayers(dt) {
     const moving = (Math.abs(tvx) + Math.abs(tvz)) > 0.05;
     const curSpeedSq = p.vx * p.vx + p.vz * p.vz;
     const reversing = moving && curSpeedSq > 0.36 && (p.vx * tvx + p.vz * tvz) < 0;
+
+    // Scivolata automatica (vedi performShot): dura il suo breve tratto anche se
+    // il joystick torna neutro subito dopo (anzi è li che si sente di più: il
+    // giocatore "non si ferma di colpo", scivola verso lo stop invece di frenare
+    // di scatto). Solo un'INVERSIONE vera annulla subito la scivolata, per non
+    // togliere reattività a chi cambia idea e vuole ripartire nell'altro verso.
+    if ((p.autoSlideT || 0) > 0) {
+      if (reversing) p.autoSlideT = 0;
+      else p.autoSlideT -= dt;
+    }
+    const autoSliding = (p.autoSlideT || 0) > 0;
     {
-      const tau = !moving ? prof.decelTau : (reversing ? prof.turnTau : ACCEL_TAU);
+      const autoTau = AUTO_SLIDE_TAU[state.court] || 0.32;
+      const tau = autoSliding ? autoTau : (!moving ? prof.decelTau : (reversing ? prof.turnTau : ACCEL_TAU));
       const k = 1 - Math.exp(-dt / tau);
       p.vx += (tvx - p.vx) * k;
       p.vz += (tvz - p.vz) * k;
 
-      // slide: rilevamento cambio direzione brusco (effetto visivo, es. polvere su terra)
-      p.slide = Math.max(0, p.slide - dt * 2);
+      // slide: rilevamento cambio direzione brusco (effetto visivo, es. polvere su terra),
+      // o scivolata automatica in corso: stesso segnale, stesso effetto visivo.
+      p.slide = autoSliding ? Math.min(1, p.slide + dt * 5) : Math.max(0, p.slide - dt * 2);
       const dot = (p.lastTargetVx || 0) * tvx + (p.lastTargetVz || 0) * tvz;
       if (dot < -0.4 && (Math.abs(p.vx) + Math.abs(p.vz)) > 2.0) {
         p.slide = Math.min(1, p.slide + prof.slide * 0.6);
@@ -1157,7 +1192,7 @@ io.on('connection', (socket) => {
       team, color: COLORS[colorIdx],
       x: 0, z: 0, vx: 0, vz: 0,
       targetVx: 0, targetVz: 0,
-      stamina: 1.0, slide: 0,
+      stamina: 1.0, slide: 0, autoSlideT: 0,
       swingT: 0, lastSwing: 0,
       canHitUntil: 0,
       charging: false, chargeT: 0,

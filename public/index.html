@@ -362,7 +362,8 @@ socket.on('state', (s) => {
   nextState = s;
   stateRecvT = performance.now();
   serverState = s;
-  if (s.court && s.court !== builtCourtKey) rebuildCourt(s.court);
+  const wantDoubles = s.mode === '2v2' || s.mode === '4v4';
+  if (s.court && (s.court !== builtCourtKey || wantDoubles !== builtCourtDoubles)) rebuildCourt(s.court, wantDoubles);
   if (s.events) processEvents(s.events);
 });
 
@@ -726,6 +727,11 @@ scene.add(keyLight);
 const fillLight = new THREE.DirectionalLight(0xbcd0ff, 0.65);
 fillLight.position.set(-10, 16, 14);
 scene.add(fillLight);
+// controluce basso e freddo da dietro le tribune lontane: stacca i giocatori dallo
+// sfondo scuro e dà profondità, come i riflettori di un impianto vero visti di taglio.
+const rimLight = new THREE.DirectionalLight(0x6fa8ff, 0.5);
+rimLight.position.set(2, 5, 22);
+scene.add(rimLight);
 
 // =========================================================================
 // Texture procedurali
@@ -733,7 +739,7 @@ scene.add(fillLight);
 function makeCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 
 // Campo: 18m (x) × 30m (z) → canvas 1024×1707, linee bianche disegnate a misura reale
-function makeCourtTexture(key) {
+function makeCourtTexture(key, doubles) {
   const t = COURT_THEMES[key];
   const W = 1024, H = Math.round(W * 30 / 18);
   const c = makeCanvas(W, H);
@@ -745,9 +751,12 @@ function makeCourtTexture(key) {
   // fondo esterno (run-off)
   g.fillStyle = t.baseDark;
   g.fillRect(0, 0, W, H);
-  // zona di gioco interna (rettangolo doppio + margine)
+  // zona di gioco interna: in doppio (2v2/4v4) tutto il rettangolo doppio è "in
+  // campo"; in singolo i corridoi laterali restano fuori (tinta run-off, come un
+  // vero campo da torneo quando si gioca 1v1) e solo la fascia singolo è colorata.
   g.fillStyle = t.base;
-  g.fillRect(X(-COURT.DOUBLES_HALF_W), Z(-COURT.BASELINE_Z), (COURT.DOUBLES_HALF_W * 2) * px, (COURT.BASELINE_Z * 2) * px);
+  const playHalfW = doubles ? COURT.DOUBLES_HALF_W : COURT.SINGLES_HALF_W;
+  g.fillRect(X(-playHalfW), Z(-COURT.BASELINE_Z), (playHalfW * 2) * px, (COURT.BASELINE_Z * 2) * px);
 
   // caratterizzazione superficie
   if (key === 'grass') {
@@ -777,25 +786,39 @@ function makeCourtTexture(key) {
     }
   }
 
-  // linee ufficiali
-  g.strokeStyle = t.line;
-  g.fillStyle = t.line;
+  // linee ufficiali. Su un campo vero sono dipinte entrambe SEMPRE (singolo e
+  // doppio); qui diamo risalto a quella che conta per la modalità in corso: il
+  // perimetro doppio è il confine "vivo" in 2v2/4v4 (i corridoi sono in campo),
+  // le righe di singolo lo sono in 1v1. L'altra resta comunque visibile ma più
+  // sottile/tenue, così si legge subito qual è il campo valido colpo dopo colpo.
   const lw = Math.max(2, 0.05 * px);
-  g.lineWidth = lw;
   const dx = COURT.DOUBLES_HALF_W, sx = COURT.SINGLES_HALF_W, bz = COURT.BASELINE_Z, sz = COURT.SERVICE_Z;
-  // perimetro doppio
+
+  // perimetro doppio (corridoi compresi)
+  g.strokeStyle = t.line;
+  g.globalAlpha = doubles ? 1 : 0.45;
+  g.lineWidth = doubles ? lw * 1.15 : lw * 0.75;
   g.strokeRect(X(-dx), Z(-bz), dx * 2 * px, bz * 2 * px);
-  // righe singolo
+
+  // righe di singolo (sideline interne)
+  g.globalAlpha = doubles ? 0.45 : 1;
+  g.lineWidth = doubles ? lw * 0.75 : lw * 1.15;
   g.beginPath();
   g.moveTo(X(-sx), Z(-bz)); g.lineTo(X(-sx), Z(bz));
   g.moveTo(X(sx), Z(-bz)); g.lineTo(X(sx), Z(bz));
-  // righe servizio
+  g.stroke();
+
+  // righe di servizio (sempre entro la larghezza singolo, uguali in ogni formato)
+  g.globalAlpha = 1;
+  g.lineWidth = lw;
+  g.beginPath();
   g.moveTo(X(-sx), Z(-sz)); g.lineTo(X(sx), Z(-sz));
   g.moveTo(X(-sx), Z(sz)); g.lineTo(X(sx), Z(sz));
-  // riga centrale servizio
   g.moveTo(X(0), Z(-sz)); g.lineTo(X(0), Z(sz));
   g.stroke();
-  // baseline più spesse + segno centrale
+
+  // baseline: sempre piene per tutta la larghezza doppio + segno centrale
+  g.fillStyle = t.line;
   g.lineWidth = lw * 1.8;
   g.beginPath();
   g.moveTo(X(-dx), Z(-bz)); g.lineTo(X(dx), Z(-bz));
@@ -803,6 +826,7 @@ function makeCourtTexture(key) {
   g.stroke();
   g.fillRect(X(0) - lw / 2, Z(-bz), lw, 0.18 * px);
   g.fillRect(X(0) - lw / 2, Z(bz) - 0.18 * px, lw, 0.18 * px);
+  g.globalAlpha = 1;
 
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
@@ -828,40 +852,116 @@ function makeNetTexture() {
   return tex;
 }
 
-// Tabelloni pubblicitari
-function makeBoardTexture(text) {
+// Tabelloni pubblicitari: testi generici stile torneo, ognuno con un accento di
+// colore diverso così il bordo campo sembra un vero giro di sponsor.
+function makeBoardTexture(text, accent) {
   const c = makeCanvas(1024, 88);
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, 88);
   grad.addColorStop(0, '#101a30'); grad.addColorStop(1, '#0a1322');
   g.fillStyle = grad; g.fillRect(0, 0, 1024, 88);
-  g.strokeStyle = 'rgba(255,255,255,0.18)'; g.lineWidth = 3;
+  g.strokeStyle = accent || 'rgba(255,255,255,0.18)'; g.lineWidth = 3;
   g.strokeRect(2, 2, 1020, 84);
+  // sottile striscia d'accento in basso, come i loghi sponsor veri
+  g.fillStyle = accent || 'rgba(255,255,255,0.35)';
+  g.globalAlpha = 0.55;
+  g.fillRect(0, 80, 1024, 8);
+  g.globalAlpha = 1;
   g.fillStyle = 'rgba(255,255,255,0.78)';
   g.font = '900 44px -apple-system, Arial';
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(text, 512, 47);
+  g.fillText(text, 512, 40);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-// Folla sugli spalti: puntini colorati su gradinata scura
+// Folla sugli spalti: puntini colorati su gradinata scura, "teste" con un accenno
+// di spalle per leggerla meglio da vicino, più qualche puntino chiaro sparso
+// (flash/schermi dei telefoni) che dà vita alla tribuna. Il canvas resta accessibile
+// (crowdCtx) per poterlo animare a chiazze nel tempo, vedi updateCrowdTexture().
+const CROWD_COLS = ['#8b95a8', '#c0a080', '#7286a8', '#a87878', '#d8c8a8', '#6878a0', '#90b090', '#b0a0c0'];
+function paintCrowdPatch(g, x0, y0, w, h) {
+  const n = Math.max(1, Math.round((w * h) / 55));
+  for (let i = 0; i < n; i++) {
+    const x = x0 + Math.random() * w, y = y0 + Math.random() * h;
+    g.fillStyle = CROWD_COLS[(Math.random() * CROWD_COLS.length) | 0];
+    g.globalAlpha = 0.35 + Math.random() * 0.5;
+    g.beginPath(); g.arc(x, y, 1.6 + Math.random() * 1.4, 0, 7); g.fill();
+    // "spalle" appena accennate sotto la testa
+    g.globalAlpha *= 0.6;
+    g.fillRect(x - 1.6, y + 1.2, 3.2, 2.2);
+  }
+  // qualche puntino chiaro (flash, magliette bianche, schermi) per vivacità
+  const nBright = Math.max(1, Math.round(n * 0.05));
+  for (let i = 0; i < nBright; i++) {
+    const x = x0 + Math.random() * w, y = y0 + Math.random() * h;
+    g.globalAlpha = 0.5 + Math.random() * 0.4;
+    g.fillStyle = '#fff8e0';
+    g.beginPath(); g.arc(x, y, 1.1, 0, 7); g.fill();
+  }
+  g.globalAlpha = 1;
+}
 function makeCrowdTexture() {
   const c = makeCanvas(512, 128);
   const g = c.getContext('2d');
   g.fillStyle = '#0d1526'; g.fillRect(0, 0, 512, 128);
-  const cols = ['#8b95a8', '#c0a080', '#7286a8', '#a87878', '#d8c8a8', '#6878a0', '#90b090'];
-  for (let i = 0; i < 900; i++) {
-    g.fillStyle = cols[(Math.random() * cols.length) | 0];
-    g.globalAlpha = 0.35 + Math.random() * 0.5;
-    const x = Math.random() * 512, y = Math.random() * 128;
-    g.beginPath(); g.arc(x, y, 1.6 + Math.random() * 1.4, 0, 7); g.fill();
-  }
-  g.globalAlpha = 1;
+  paintCrowdPatch(g, 0, 0, 512, 128);
+  crowdCtx = g;
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.RepeatWrapping;
+  crowdTex = tex;
+  return tex;
+}
+// Animazione del pubblico: ridipinge a rotazione piccole chiazze del telo (non
+// tutto, per restare leggero) simulando la gente che si muove/applaude; throttle
+// a intervalli così il costo resta trascurabile anche su schermi ricchi di dettagli.
+let crowdAnimT = 0;
+function updateCrowdTexture(dt) {
+  if (!crowdCtx || !crowdTex) return;
+  crowdAnimT += dt;
+  if (crowdAnimT < 0.12) return;
+  crowdAnimT = 0;
+  for (let i = 0; i < 3; i++) {
+    const w = 40 + Math.random() * 50, h = 30 + Math.random() * 50;
+    const x0 = Math.random() * (512 - w), y0 = Math.random() * (128 - h);
+    crowdCtx.fillStyle = '#0d1526';
+    crowdCtx.fillRect(x0, y0, w, h);
+    paintCrowdPatch(crowdCtx, x0, y0, w, h);
+  }
+  crowdTex.needsUpdate = true;
+}
+
+// Cielo notturno: gradiente zenith→orizzonte con bagliore caldo (riflesso dei fari)
+// e una sottile silhouette di skyline lontano, per dare profondità oltre le tribune.
+function makeSkyTexture() {
+  const W = 512, H = 512;
+  const c = makeCanvas(W, H);
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#04060d');
+  grad.addColorStop(0.55, '#070c1c');
+  grad.addColorStop(0.78, '#131c30');
+  grad.addColorStop(0.90, '#2a2a2e');
+  grad.addColorStop(1, '#3a3226');
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  // bagliore caldo dei fari che si riflette basso sull'orizzonte
+  const glow = g.createRadialGradient(W * 0.5, H * 0.93, 10, W * 0.5, H * 0.93, W * 0.55);
+  glow.addColorStop(0, 'rgba(255,200,120,0.28)');
+  glow.addColorStop(1, 'rgba(255,200,120,0)');
+  g.fillStyle = glow; g.fillRect(0, H * 0.7, W, H * 0.3);
+  // skyline lontano: sagome scure di edifici generici, appena sopra l'orizzonte
+  g.fillStyle = 'rgba(5,7,14,0.85)';
+  let x = 0;
+  while (x < W) {
+    const bw = 14 + Math.random() * 30;
+    const bh = 6 + Math.random() * 26;
+    g.fillRect(x, H * 0.90 - bh, bw, bh + 20);
+    x += bw + 2 + Math.random() * 6;
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
@@ -877,6 +977,20 @@ function makeDotTexture() {
   return new THREE.CanvasTexture(c);
 }
 const dotTex = makeDotTexture();
+
+// Ombra di contatto morbida: gradiente radiale invece del disco pieno usato prima,
+// per un bordo sfumato realistico (giocatori e palla).
+function makeSoftShadowTexture() {
+  const c = makeCanvas(64, 64);
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  rg.addColorStop(0, 'rgba(0,0,0,0.55)');
+  rg.addColorStop(0.6, 'rgba(0,0,0,0.32)');
+  rg.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
+}
+const softShadowTex = makeSoftShadowTexture();
 
 // Sprite alone luminoso (fari)
 function makeGlowTexture() {
@@ -936,18 +1050,19 @@ function updateNameSprite(spr, name, color, isMe, stamina, emote) {
 const world = new THREE.Group();
 scene.add(world);
 
-let courtMesh = null, builtCourtKey = null, apronMesh = null;
-function rebuildCourt(key) {
+let courtMesh = null, builtCourtKey = null, builtCourtDoubles = null, apronMesh = null;
+function rebuildCourt(key, doubles) {
   builtCourtKey = key;
+  builtCourtDoubles = doubles;
   const theme = COURT_THEMES[key] || COURT_THEMES.hard;
   if (courtMesh) {
     courtMesh.material.map.dispose();
-    courtMesh.material.map = makeCourtTexture(key);
+    courtMesh.material.map = makeCourtTexture(key, doubles);
     courtMesh.material.needsUpdate = true;
   } else {
     courtMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(18, 30),
-      new THREE.MeshStandardMaterial({ map: makeCourtTexture(key), roughness: 0.94, metalness: 0 })
+      new THREE.MeshStandardMaterial({ map: makeCourtTexture(key, doubles), roughness: 0.94, metalness: 0 })
     );
     courtMesh.rotation.x = -Math.PI / 2;
     courtMesh.receiveShadow = true;
@@ -955,6 +1070,10 @@ function rebuildCourt(key) {
   }
   if (apronMesh) apronMesh.material.color.set(theme.apron);
 }
+
+let starMat = null;  // materiale del campo stellato, per la pulsazione nel loop
+let crowdTex = null, crowdCtx = null; // texture pubblico, ridisegnata a chiazze per animarla
+let standMat = null; // materiale spalti, per la pulsazione luminosa nel loop
 
 // pavimento circostante
 apronMesh = new THREE.Mesh(
@@ -965,7 +1084,36 @@ apronMesh.rotation.x = -Math.PI / 2;
 apronMesh.position.y = -0.012;
 apronMesh.receiveShadow = true;
 world.add(apronMesh);
-rebuildCourt('hard');
+rebuildCourt('hard', false);
+
+// Cielo/sfondo atmosferico dietro le tribune: cupola invertita con gradiente
+// notturno + skyline lontano, sempre nitida (fog disattivata) anche oltre la
+// nebbia che sfuma il resto della scena.
+{
+  const skyGeo = new THREE.SphereGeometry(120, 24, 16);
+  const skyMat = new THREE.MeshBasicMaterial({ map: makeSkyTexture(), side: THREE.BackSide, fog: false, depthWrite: false });
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  sky.position.y = 4;
+  scene.add(sky);
+
+  // campo stellato rado nella parte alta della cupola: puntini che pulsano appena
+  const N_STARS = 90;
+  const starPos = new Float32Array(N_STARS * 3);
+  for (let i = 0; i < N_STARS; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const h = 0.25 + Math.random() * 0.7; // solo nella metà superiore
+    const r = 100 + Math.random() * 15;
+    starPos[i * 3] = Math.cos(ang) * r;
+    starPos[i * 3 + 1] = 8 + h * 85;
+    starPos[i * 3 + 2] = Math.sin(ang) * r;
+  }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+  starMat = new THREE.PointsMaterial({ color: 0xdfe8ff, size: 1.6, map: dotTex, transparent: true,
+    opacity: 0.55, depthWrite: false, fog: false, sizeAttenuation: false });
+  const stars = new THREE.Points(starGeo, starMat);
+  scene.add(stars);
+}
 
 // rete + pali + banda
 {
@@ -996,31 +1144,39 @@ rebuildCourt('hard');
 
 // tabelloni pubblicitari + spalti + fari
 {
-  const boardTex = makeBoardTexture('· TENNIS ARENA ·');
-  const boardMat = new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.8, emissive: 0x223044, emissiveIntensity: 0.35 });
-  const mkBoard = (w) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.95, 0.14), boardMat);
+  // testi/accenti generici stile torneo: un giro vario, non tutti uguali
+  const boardDefs = [
+    { text: '· TENNIS ARENA ·', accent: '#ffd166' },
+    { text: 'OPEN CHAMPIONSHIP', accent: '#3a86ff' },
+    { text: 'COURT ENERGY', accent: '#06d6a0' },
+    { text: 'ACE SPORTS CLUB', accent: '#ff6b6b' },
+  ];
+  const boardMats = boardDefs.map(d => new THREE.MeshStandardMaterial({
+    map: makeBoardTexture(d.text, d.accent), roughness: 0.8, emissive: 0x223044, emissiveIntensity: 0.35,
+  }));
+  const mkBoard = (w, mat) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.95, 0.14), mat);
     m.castShadow = true;
     return m;
   };
-  for (const sz of [-1, 1]) {
-    const b = mkBoard(24);
+  [-1, 1].forEach((sz, i) => {
+    const b = mkBoard(24, boardMats[i]);
     b.position.set(0, 0.48, sz * 16.6);
     world.add(b);
-  }
-  for (const sx of [-1, 1]) {
-    const b = mkBoard(30);
+  });
+  [-1, 1].forEach((sx, i) => {
+    const b = mkBoard(30, boardMats[i + 2]);
     b.rotation.y = Math.PI / 2;
     b.position.set(sx * 11.6, 0.48, 0);
     world.add(b);
-  }
+  });
 
-  const crowdTex = makeCrowdTexture();
-  const standMat = new THREE.MeshStandardMaterial({ map: crowdTex, roughness: 1, emissive: 0x4a5878, emissiveMap: crowdTex, emissiveIntensity: 0.5 });
+  makeCrowdTexture(); // popola crowdTex/crowdCtx (module-scope)
+  standMat = new THREE.MeshStandardMaterial({ map: crowdTex, roughness: 1, emissive: 0x4a5878, emissiveMap: crowdTex, emissiveIntensity: 0.5 });
   const standFrame = new THREE.MeshStandardMaterial({ color: 0x0a0f1c, roughness: 1 });
   for (const sz of [-1, 1]) {
     for (let i = 0; i < 5; i++) {
-      const stand = new THREE.Mesh(new THREE.BoxGeometry(40, 1.5, 2.4), i % 2 === 0 ? standMat : standMat);
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(40, 1.5, 2.4), standMat);
       stand.position.set(0, 1.1 + i * 1.35, sz * (19.5 + i * 2.3));
       world.add(stand);
       const base = new THREE.Mesh(new THREE.BoxGeometry(40, 1.1 + i * 1.35, 2.4), standFrame);
@@ -1036,7 +1192,7 @@ rebuildCourt('hard');
     }
   }
 
-  // fari agli angoli
+  // fari agli angoli + coni di luce verso il campo (illuminazione da torneo vero)
   const glowTex = makeGlowTexture();
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x222a36, roughness: 0.6, metalness: 0.4 });
   const headMat = new THREE.MeshStandardMaterial({ color: 0xeef4ff, emissive: 0xffffff, emissiveIntensity: 1.6 });
@@ -1053,6 +1209,15 @@ rebuildCourt('hard');
     glow.scale.set(7, 7, 1);
     glow.position.set(sx * 13.5, 12.7, sz * 18);
     world.add(glow);
+    // cono di luce vero e proprio da due dei quattro fari: basta a dare il
+    // caratteristico "sotto i riflettori" senza appesantire troppo il render
+    // (niente ombre da questi, le ombre nitide restano a carico di keyLight).
+    if (sx * sz > 0) {
+      const spot = new THREE.SpotLight(0xfff2d8, 5.5, 46, Math.PI / 6.2, 0.55, 1.4);
+      spot.position.set(sx * 13.5, 12.4, sz * 18);
+      spot.target.position.set(0, 0.3, 0);
+      world.add(spot); world.add(spot.target);
+    }
   }
 }
 
@@ -1086,6 +1251,22 @@ function buildPlayerMesh(shirtHex) {
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.115, 14, 12), skinMat); head.castShadow = true; headG.add(head);
   const hair = new THREE.Mesh(new THREE.SphereGeometry(0.122, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat);
   hair.position.y = 0.018; headG.add(hair);
+  // ciuffo che "insegue" la testa con un piccolo ritardo (molla smorzata in
+  // updatePlayer3D): non è agganciato rigidamente a headG, così si vede muovere
+  // quando il giocatore gira la testa o scatta per colpire.
+  const hairSwayG = new THREE.Group(); hairSwayG.position.y = 1.66; body.add(hairSwayG);
+  const hairStrand = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.10, 6), hairMat);
+  hairStrand.rotation.x = Math.PI * 0.42; hairStrand.position.set(0, 0.05, -0.10);
+  hairSwayG.add(hairStrand);
+
+  // piccolo lembo di maglia (collo/orlo) con la stessa logica di ritardo: dà
+  // un accenno di "fisica del tessuto" senza simulare un vero panno.
+  const clothSwayG = new THREE.Group(); clothSwayG.position.y = 1.42; body.add(clothSwayG);
+  const clothFlap = new THREE.Mesh(new THREE.PlaneGeometry(0.10, 0.13), new THREE.MeshStandardMaterial({
+    color: shirtHex, roughness: 0.8, side: THREE.DoubleSide,
+  }));
+  clothFlap.position.set(0, -0.02, -0.095); clothFlap.rotation.x = 0.25;
+  clothSwayG.add(clothFlap);
 
   // gambe: anca → ginocchio
   function makeLeg(sx) {
@@ -1124,16 +1305,16 @@ function buildPlayerMesh(shirtHex) {
   const armR = makeArm(-1, true);   // braccio racchetta
   const armL = makeArm(1, false);   // braccio libero
 
-  // ombra morbida di contatto (oltre alla shadow map)
-  const blob = new THREE.Mesh(new THREE.CircleGeometry(0.46, 22),
-    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.36, depthWrite: false }));
+  // ombra morbida di contatto (oltre alla shadow map): bordo sfumato, non un disco netto
+  const blob = new THREE.Mesh(new THREE.CircleGeometry(0.5, 22),
+    new THREE.MeshBasicMaterial({ map: softShadowTex, color: 0x000000, transparent: true, opacity: 0.85, depthWrite: false }));
   blob.rotation.x = -Math.PI / 2; blob.position.y = 0.012; root.add(blob);
 
   const name = makeNameSprite();
   name.position.y = 2.12;
   root.add(name);
 
-  return { root, body, headG, legL, legR, armR, armL, name, blob, shirtMat };
+  return { root, body, headG, legL, legR, armR, armL, name, blob, shirtMat, hairSwayG, clothSwayG };
 }
 
 // =========================================================================
@@ -1182,6 +1363,14 @@ const SHOT_KEYS = {
 const IDLE_ARM = { rx: 0.10, ry: 0, rz: -0.22, el: 0.55 };
 
 function lerp(a, b, t) { return a + (b - a) * t; }
+// Molla smorzata critica-ish: [nuovaPos, nuovaVel]. k=rigidità, damp=smorzamento.
+// Usata per far "inseguire" capelli/maglia al busto con un piccolo ritardo elastico
+// invece che seguirlo rigidamente (movimento secondario, look più naturale).
+function springTo(cur, vel, target, k, damp, dt) {
+  const accel = (target - cur) * k - vel * damp;
+  const nv = vel + accel * dt;
+  return [cur + nv * dt, nv];
+}
 function lerpKey(k0, k1, t) {
   return { rx: lerp(k0.rx, k1.rx, t), ry: lerp(k0.ry, k1.ry, t), rz: lerp(k0.rz, k1.rz, t), el: lerp(k0.el, k1.el, t) };
 }
@@ -1212,8 +1401,10 @@ function getAnim(id) {
       run: Math.random() * 6, breath: Math.random() * 6, swing: 0, speedN: 0,
       splitT: 0, celeT: 0, dejT: 0,
       shot: 'drive', sideX: 1,
-      turn: 0,
       turn: 0,      // rotazione fluida del busto
+      // molle smorzate per il "seguito" di capelli/maglia (si veda springTo):
+      // inseguono la rotazione del busto con un piccolo ritardo elastico.
+      hairSway: 0, hairSwayV: 0, clothSway: 0, clothSwayV: 0,
     };
   }
   return a;
@@ -1354,6 +1545,15 @@ function updatePlayer3D(p, dt) {
   a.turn += (targetTurn - a.turn) * Math.min(1, dt * 10);
   m.root.rotation.y = faceY + a.turn;
 
+  // capelli e lembo di maglia: molle smorzate che inseguono la rotazione del
+  // busto con un piccolo ritardo elastico (capelli più "pronti", maglia più
+  // "morbida"/lenta) — movimento secondario, si vede soprattutto nei colpi e
+  // nei cambi di direzione bruschi.
+  [a.hairSway, a.hairSwayV] = springTo(a.hairSway, a.hairSwayV, a.turn, 220, 16, dt);
+  [a.clothSway, a.clothSwayV] = springTo(a.clothSway, a.clothSwayV, a.turn, 60, 10, dt);
+  if (m.hairSwayG) m.hairSwayG.rotation.z = (a.turn - a.hairSway) * 2.6;
+  if (m.clothSwayG) m.clothSwayG.rotation.z = (a.turn - a.clothSway) * 1.8;
+
   // ---- braccio racchetta ----
   m.armR.shoulder.rotation.set(armKey.rx, armKey.ry, armKey.rz, 'ZYX');
   m.armR.elbow.rotation.x = -armKey.el;
@@ -1362,24 +1562,31 @@ function updatePlayer3D(p, dt) {
   m.armL.shoulder.rotation.set(freeKey.rx, freeKey.ry, -Math.abs(freeKey.rz), 'ZYX');
   m.armL.elbow.rotation.x = -freeKey.el;
 
-  // ---- gambe: ciclo corsa o stance ----
+  // ---- gambe: ciclo corsa/stance sfumato con a.speedN (niente scatti quando
+  // si parte o ci si ferma: idle e corsa sono i due estremi di un'unica miscela) ----
   const stride = (0.55 + 0.25 * a.speedN);
+  const sway = Math.sin(a.breath) * 0.02;
+  const phL = Math.sin(a.run), phR = Math.sin(a.run + Math.PI);
+  const idleHipX = crouch * 0.7, idleKnee = crouch * 1.6 + 0.04;
+  const runKneeL = Math.max(0, -phL) * 1.1 * (0.4 + a.speedN);
+  const runKneeR = Math.max(0, -phR) * 1.1 * (0.4 + a.speedN);
+  const hipLx = lerp(sway + idleHipX, phL * stride, a.speedN);
+  const hipRx = lerp(-sway + idleHipX, phR * stride, a.speedN);
+  const kneeL = lerp(idleKnee, runKneeL, a.speedN);
+  const kneeR = lerp(idleKnee, runKneeR, a.speedN);
   if (a.splitT > 0) {
-    m.legL.hip.rotation.x = 0; m.legR.hip.rotation.x = 0;
-    m.legL.hip.rotation.z = 0.30; m.legR.hip.rotation.z = -0.30;
-    m.legL.knee.rotation.x = 0.5; m.legR.knee.rotation.x = 0.5;
-  } else if (a.speedN > 0.04) {
-    const phL = Math.sin(a.run), phR = Math.sin(a.run + Math.PI);
-    m.legL.hip.rotation.set(phL * stride, 0, 0.02);
-    m.legR.hip.rotation.set(phR * stride, 0, -0.02);
-    m.legL.knee.rotation.x = Math.max(0, -phL) * 1.1 * (0.4 + a.speedN);
-    m.legR.knee.rotation.x = Math.max(0, -phR) * 1.1 * (0.4 + a.speedN);
+    // esce dallo split-step sfumando verso la posa corsa/idle corrente, non con
+    // uno scatto istantaneo quando il timer arriva a zero
+    const kSplit = a.splitT / 0.26;
+    m.legL.hip.rotation.set(lerp(hipLx, 0, kSplit), 0, lerp(0.02, 0.30, kSplit));
+    m.legR.hip.rotation.set(lerp(hipRx, 0, kSplit), 0, lerp(-0.02, -0.30, kSplit));
+    m.legL.knee.rotation.x = lerp(kneeL, 0.5, kSplit);
+    m.legR.knee.rotation.x = lerp(kneeR, 0.5, kSplit);
   } else {
-    const sway = Math.sin(a.breath) * 0.02;
-    m.legL.hip.rotation.set(sway + crouch * 0.7, 0, 0.03);
-    m.legR.hip.rotation.set(-sway + crouch * 0.7, 0, -0.03);
-    m.legL.knee.rotation.x = crouch * 1.6 + 0.04;
-    m.legR.knee.rotation.x = crouch * 1.6 + 0.04;
+    m.legL.hip.rotation.set(hipLx, 0, 0.02);
+    m.legR.hip.rotation.set(hipRx, 0, -0.02);
+    m.legL.knee.rotation.x = kneeL;
+    m.legR.knee.rotation.x = kneeR;
   }
 
   // testa: guarda la palla
@@ -1429,8 +1636,8 @@ const ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({
 }));
 ballGlow.scale.set(0.55, 0.55, 1);
 ballMesh.add(ballGlow);
-const ballBlob = new THREE.Mesh(new THREE.CircleGeometry(0.09, 16),
-  new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, depthWrite: false }));
+const ballBlob = new THREE.Mesh(new THREE.CircleGeometry(0.11, 16),
+  new THREE.MeshBasicMaterial({ map: softShadowTex, color: 0x000000, transparent: true, opacity: 0.75, depthWrite: false }));
 ballBlob.rotation.x = -Math.PI / 2; ballBlob.position.y = 0.014; ballBlob.visible = false;
 world.add(ballBlob);
 let ballSquash = 0;
@@ -1460,7 +1667,7 @@ function updateBall3D(b, now) {
   ballBlob.visible = true;
   ballBlob.position.set(b.x, 0.014, b.z);
   const hN = Math.min(1, b.y / 6);
-  ballBlob.material.opacity = 0.42 * (1 - hN * 0.7);
+  ballBlob.material.opacity = 0.68 * (1 - hN * 0.7);
   const bs = 1 + hN * 1.6;
   ballBlob.scale.set(bs, bs, 1);
 
@@ -1887,6 +2094,11 @@ function frame(now) {
   let dt = (now - lastFrameT) / 1000;
   lastFrameT = now;
   if (dt > 0.1) dt = 0.1;
+
+  // ambientazione: viva sempre, anche in lobby prima che una partita cominci
+  updateCrowdTexture(dt);
+  if (standMat) standMat.emissiveIntensity = 0.5 + Math.sin(now / 1400) * 0.06;
+  if (starMat) starMat.opacity = 0.45 + Math.sin(now / 900) * 0.15 + Math.sin(now / 2300) * 0.08;
 
   interpState = interp(now);
   const s = interpState;
