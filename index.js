@@ -37,12 +37,15 @@ const COURT = {
   NET_OVERHANG: 0.914, // post extends past doubles sideline
 };
 
-// maxSpeed ridotto ~37% e accel/decel espressi come costanti di tempo (tau, in secondi):
-// accelTau = tempo per prendere velocità, decelTau = tempo per fermarsi (più alto = scivola).
+// maxSpeed ridotto ~37% e accel/decel espressi come costanti di tempo (tau, in secondi,
+// più basso = più reattivo). decelTau = tempo per fermarsi (più alto = scivola).
+// turnTau = tempo per INVERTIRE direzione mentre si è lanciati (stop-and-go): erba
+// grip massimo e cambio quasi immediato, terra rossa mantiene l'inerzia (coerente
+// con lo scivolamento sui cambi bruschi), cemento via di mezzo.
 const COURT_PROFILES = {
-  clay:  { restY: 0.74, fricH: 0.78, accelTau: 0.22, decelTau: 0.46, maxSpeed: 3.7, slide: 0.90 },
-  grass: { restY: 0.55, fricH: 0.96, accelTau: 0.12, decelTau: 0.16, maxSpeed: 4.1, slide: 0.30 },
-  hard:  { restY: 0.66, fricH: 0.88, accelTau: 0.16, decelTau: 0.28, maxSpeed: 3.9, slide: 0.55 },
+  clay:  { restY: 0.74, fricH: 0.78, turnTau: 0.34, decelTau: 0.46, maxSpeed: 3.7, slide: 0.90 },
+  grass: { restY: 0.55, fricH: 0.96, turnTau: 0.055, decelTau: 0.16, maxSpeed: 4.1, slide: 0.30 },
+  hard:  { restY: 0.66, fricH: 0.88, turnTau: 0.11, decelTau: 0.28, maxSpeed: 3.9, slide: 0.55 },
 };
 
 // ---------------------------------------------------------------------------
@@ -592,6 +595,22 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
     speed *= SUPER_SPEED_MULT;
     spin *= 1.2;
     targetZ *= 0.6;
+    // Rinforzo dell'arco per SMASH e SLICE, i colpi con traiettoria più bassa: con
+    // la super diventano anche più veloci, quindi ancora più piatti. Come per il
+    // lob, l'extra quota (vyBoost) è proporzionale alla DISTANZA fra il punto di
+    // impatto e la rete: vicino alla rete ne serve pochissima, da fondocampo ne
+    // serve di più per scavalcarla sempre. Baked qui (prima del calcolo di vy),
+    // non come toppa dopo: così l'arco nasce già giusto, non viene forzato.
+    if (isSmash) {
+      // launchY più alto (2.6) dà già parecchio margine naturale: basta un rinforzo lieve.
+      vyBoost += Math.min(0.4, Math.abs(p.z) * 0.015);
+    } else if (shotType === 'slice') {
+      // launchY basso (1.2) e traiettoria tesa: qui serve il rinforzo pieno. Un
+      // colpo scarico (charge~0) è anche più lento, quindi ci mette più tempo ad
+      // arrivare alla rete e la gravità ha più margine per farlo scendere: un
+      // piccolo extra inversamente proporzionale alla carica copre anche questo caso.
+      vyBoost += Math.min(1.3, Math.abs(p.z) * 0.055) + (1 - Math.max(0, Math.min(1, charge))) * 0.35;
+    }
   }
 
   // perfect → maggiore precisione e potenza
@@ -610,10 +629,17 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   // l'interno e atterrano più vicini al punto mirato: si mira un filo più stretto
   // per non finire larghi (altrimenti il bonus farebbe sbagliare più colpi).
   const aimF = p.boosted ? 0.86 : 1;
+  // Più a lungo si è tenuto premuto il colpo (tipicamente perché la palla in arrivo
+  // dava tempo, es. dopo un lob avversario), più si può angolare in modo estremo se
+  // il joystick è inclinato: il MASSIMO raggiungibile cresce col charge time, non solo
+  // con l'inclinazione. A carica minima resta il valore attuale (contenuto); a carica
+  // piena l'angolo massimo cresce del 10%, visibile ma senza rendere "perfect"/"good"
+  // sistematicamente fuori (solo l'estremo assoluto: charge piena + stecca a fondo).
+  const chargeAimF = 1 + Math.max(0, Math.min(1, charge)) * 0.10;
   if (timing === 'perfect') {
-    targetX = clamp(targetX, -hwIn * 1.08 * aimF, hwIn * 1.08 * aimF);
+    targetX = clamp(targetX, -hwIn * 1.08 * aimF * chargeAimF, hwIn * 1.08 * aimF * chargeAimF);
   } else if (timing === 'good') {
-    targetX = clamp(targetX, -hwIn * 0.98 * aimF, hwIn * 0.98 * aimF);
+    targetX = clamp(targetX, -hwIn * 0.98 * aimF * chargeAimF, hwIn * 0.98 * aimF * chargeAimF);
   } else { // late
     targetX = clamp(targetX, -(hwIn + 2.6), hwIn + 2.6);
   }
@@ -653,14 +679,17 @@ function performShot(p, shotType, charge, joyAngle, useSuper) {
   ball.vx = ndx * speed;
   ball.vz = ndz * speed;
   ball.vy = (height - launchY) / tFlight + 0.5 * gEff * tFlight + vyBoost;
-  // garanzia anti-rete: un colpo molto teso/veloce potrebbe passare sotto il nastro.
-  // Se la traiettoria prevista è troppo bassa all'altezza della rete, alziamo vy
-  // quel minimo che basta a scavalcarla (margine ~0.25m sopra il nastro centrale).
+  // garanzia anti-rete: ultima rete di sicurezza per casi residui. La stima qui
+  // sotto ignora l'attrito dell'aria (per restare semplice), quindi in geometrie
+  // estreme può risultare un po' ottimista rispetto alla fisica reale di stepBall;
+  // per smash/slice in super teniamo un margine leggermente più alto per coprire
+  // anche questo scarto, dato che sono i colpi più a rischio.
   if (Math.abs(ball.vz) > 0.1 && Math.sign(ndz) !== 0) {
     const tNet = Math.abs(p.z) / Math.abs(ball.vz);
     if (tNet > 0 && tNet < tFlight) {
       const yNet = launchY + ball.vy * tNet - 0.5 * gEff * tNet * tNet;
-      const need = COURT.NET_H_CENTER + 0.15;
+      const lowArc = isSmash || shotType === 'slice';
+      const need = COURT.NET_H_CENTER + (teamEnergyFull && lowArc ? 0.32 : 0.15);
       if (yNet < need) ball.vy += (need - yNet) / tNet;
     }
   }
@@ -942,15 +971,21 @@ function stepPlayers(dt) {
     const tvz = p.targetVz * maxSpeed * staminaF;
 
     // smoothing esponenziale: accelera/decelera in modo morbido e "pesante".
-    // In accelerazione usiamo ACCEL_TAU (~0.15s per la velocità max) per una risposta pronta ma graduale.
+    // In accelerazione (da fermo o proseguendo nella stessa direzione) usiamo
+    // ACCEL_TAU (~0.15s). Quando invece si INVERTE direzione mentre si è lanciati
+    // (stop-and-go) usiamo turnTau, specifico per superficie: erba quasi immediato
+    // (grip massimo), terra rossa mantiene l'inerzia (si scivola nella virata),
+    // cemento via di mezzo.
     const moving = (Math.abs(tvx) + Math.abs(tvz)) > 0.05;
+    const curSpeedSq = p.vx * p.vx + p.vz * p.vz;
+    const reversing = moving && curSpeedSq > 0.36 && (p.vx * tvx + p.vz * tvz) < 0;
     {
-      const tau = moving ? ACCEL_TAU : prof.decelTau;
+      const tau = !moving ? prof.decelTau : (reversing ? prof.turnTau : ACCEL_TAU);
       const k = 1 - Math.exp(-dt / tau);
       p.vx += (tvx - p.vx) * k;
       p.vz += (tvz - p.vz) * k;
 
-      // slide: rilevamento cambio direzione brusco
+      // slide: rilevamento cambio direzione brusco (effetto visivo, es. polvere su terra)
       p.slide = Math.max(0, p.slide - dt * 2);
       const dot = (p.lastTargetVx || 0) * tvx + (p.lastTargetVz || 0) * tvz;
       if (dot < -0.4 && (Math.abs(p.vx) + Math.abs(p.vz)) > 2.0) {
