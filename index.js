@@ -66,8 +66,24 @@ const ACCEL_TAU = 0.15;         // accelerazione graduale: ~0.15s per raggiunger
 const AUTO_SLIDE_SPEED_FRAC = 0.85; // velocità minima al contatto (frazione della max)
 const AUTO_SLIDE_TIME = { clay: 0.26, grass: 0.06, hard: 0.14 };
 const AUTO_SLIDE_TAU = { clay: 1.05, grass: 0.30, hard: 0.62 }; // "morbidezza" della coda
+// Servizio piatto e kick: bersaglio vicino al fondo del box (la riga di servizio è
+// a COURT.SERVICE_Z dalla rete). Il volo è calcolato con la fisica reale, quindi
+// la palla cade tra SERVE_DEEP_Z - SERVE_DEEP_SPREAD e SERVE_DEEP_Z, mai oltre.
+const SERVE_DEEP_Z = COURT.SERVICE_Z - 0.35;
+const SERVE_DEEP_SPREAD = 0.7;
+// Ampiezza dell'errore sui servizi fuori dallo sweet spot. Più bassa che per lo
+// slice perché qui la palla cade esattamente dove mira (prima l'aria la accorciava
+// e "assorbiva" gran parte dell'errore): tarata per restare sui falli di prima.
+const SERVE_DEEP_ERR = 0.45;
 const HIT_REACH = 2.9;          // raggio hit zone più stretto: serve precisione nel posizionarsi
 const HIT_GRACE_MS = 500;       // finestra di colpo: una volta entrata in zona, colpibile per almeno 0.5s
+// Distanza minima dalla rete per la squadra che RICEVE, dalla preparazione della
+// battuta fino al primo rimbalzo del servizio. Prima il limite era la riga di
+// servizio, ma col raggio di colpo di HIT_REACH metri da lì si arrivava comunque
+// sulla palla prima che toccasse terra. Così un servizio valido (che rimbalza
+// entro la riga di servizio) resta sempre fuori portata finché non rimbalza:
+// ~9.5 m dalla rete, cioè poco più di 2 m dentro la linea di fondo.
+const RECEIVER_SERVE_MIN_Z = COURT.SERVICE_Z + HIT_REACH + 0.2;
 // Intervallo minimo tra due colpi dello stesso giocatore: evita che due giocatori
 // a rete, spammando il tasto, si rimbalzino la palla all'infinito.
 const SHOT_COOLDOWN_MS = 280;
@@ -365,8 +381,9 @@ function setupServe(keepFault = false) {
 }
 
 // A inizio punto tutti i giocatori scivolano (0.3s, vedi stepPlayers) nella posizione
-// corretta: servitore dietro la baseline sul lato deuce/ad, ricevitore in diagonale,
-// i compagni distribuiti (in doppio: uno avanti vicino alla rete, gli altri al fondo).
+// corretta: servitore dietro la baseline sul lato deuce/ad, ricevitore in diagonale
+// vicino alla propria linea di fondo. Compagni del servitore: uno a rete, gli altri al
+// fondo; compagni del ricevitore: sull'altra metà, dietro RECEIVER_SERVE_MIN_Z.
 function assignServePositions(sv, standX, standZ) {
   const box = state.serveBox; // zSign = metà campo del ricevitore
   const slideTo = (p, x, z) => {
@@ -382,11 +399,14 @@ function assignServePositions(sv, standX, standZ) {
   const mates = activePlayers().filter(p => p.team === sv.team && p.id !== sv.id);
 
   // Ricevitore designato: il più vicino alla diagonale del box, pronto a rispondere.
+  // Nessun ricevitore parte davanti al limite di distanza dalla rete: prima il
+  // compagno del ricevitore veniva messo a pochi metri dalla rete, dentro la zona
+  // vietata, e a fine scivolata "scattava" indietro fino al limite.
   const recvX = box.xSign * 2.4;
   receivers.sort((a, b) => Math.abs(a.x - recvX) - Math.abs(b.x - recvX));
   receivers.forEach((p, i) => {
     if (i === 0) slideTo(p, recvX, box.zSign * (COURT.BASELINE_Z - 0.4));
-    else slideTo(p, -box.xSign * (1.6 + (i - 1) * 2.0), box.zSign * (i === 1 ? COURT.SERVICE_Z - 1.2 : COURT.BASELINE_Z - 0.8));
+    else slideTo(p, -box.xSign * (1.6 + (i - 1) * 2.0), box.zSign * (i === 1 ? RECEIVER_SERVE_MIN_Z + 0.3 : COURT.BASELINE_Z - 0.8));
   });
   // Compagni del servitore: il primo a rete sul lato opposto, gli altri al fondo.
   mates.forEach((p, i) => {
@@ -394,6 +414,34 @@ function assignServePositions(sv, standX, standZ) {
     const z = -box.zSign * (i === 0 ? COURT.SERVICE_Z - 1.2 : COURT.BASELINE_Z - 0.8);
     slideTo(p, x, z);
   });
+}
+
+// Previsione del volo con la stessa fisica e lo stesso passo di stepBall: dove
+// la palla tocca terra la prima volta (stessa soglia di rimbalzo di stepBall).
+function predictBallFlight(x, y, z, vx, vy, vz, spin, curve) {
+  const b = { x, y, z, vx, vy, vz, spin, curve };
+  for (let i = 0; i < 300; i++) {
+    integrateBallAir(b, DT);
+    if (b.y <= 0.034) break;
+  }
+  return { x: b.x, z: b.z };
+}
+
+// Velocità verticale che porta il servizio a toccare terra il più vicino
+// possibile al bersaglio SENZA mai superarlo (bisezione sulla distanza percorsa
+// lungo la direzione di mira). Tiene conto di attrito e spin veri: prima la
+// formula li ignorava e la palla cadeva 1-3 m più corta del bersaglio.
+function solveServeVy(x0, y0, z0, ndx, ndz, speed, spin, targetDist) {
+  const along = (vy) => {
+    const r = predictBallFlight(x0, y0, z0, ndx * speed, vy, ndz * speed, spin, 0);
+    return (r.x - x0) * ndx + (r.z - z0) * ndz;
+  };
+  let lo = -14, hi = 14;
+  for (let i = 0; i < 28; i++) {
+    const mid = (lo + hi) / 2;
+    if (along(mid) <= targetDist) lo = mid; else hi = mid;
+  }
+  return lo;
 }
 
 // serveType: 'flat' | 'slice' | 'kick'. charge in 0..1 (già normalizzato dal client).
@@ -414,24 +462,33 @@ function performServe(p, charge, joyAngle, serveType) {
   const off = Math.abs(tt - sweet);
   const precise = off < 0.16;
 
-  // parametri per tipo di servizio (velocità già ridotte ~40%)
+  // parametri per tipo di servizio. Piatto e kick potenziati (+22% / +17%: il kick
+  // un filo meno, così resta più arcuato e conserva il suo rimbalzo alto);
+  // slice invariato.
   let base, spin, curve;
   if (serveType === 'slice') {
     base = 25; spin = -0.1; curve = xSign * 0.9;  // taglia di lato, curva verso il box
   } else if (serveType === 'kick') {
-    base = 23; spin = 0.7; curve = 0;             // topspin → rimbalzo che salta
+    base = 27; spin = 0.7; curve = 0;             // topspin → rimbalzo che salta
   } else { // flat
-    base = 29; spin = 0.08; curve = 0;            // veloce, teso
+    base = 35.5; spin = 0.08; curve = 0;          // veloce, teso
   }
   const speed = base * power * SHOT_SPEED_SCALE;
+  // Piatto e kick cercano il fondo del box e la loro traiettoria è calcolata con la
+  // fisica vera (solveServeVy): cadono davvero dove mirano. Lo slice resta com'era,
+  // e così la battuta caricata troppo poco (tt < 0.4), che deve finire in rete.
+  const deep = serveType !== 'slice' && tt >= 0.4;
 
   // bersaglio dentro il box diagonale
   let targetX = xSign * (COURT.SINGLES_HALF_W * 0.55) + aimX * 1.6;
-  let targetZ = zSign * (COURT.SERVICE_Z - 1.0 - Math.random() * 0.8);
+  let targetZ = deep
+    ? zSign * (SERVE_DEEP_Z - Math.random() * SERVE_DEEP_SPREAD)
+    : zSign * (COURT.SERVICE_Z - 1.0 - Math.random() * 0.8);
   if (!precise) {
     const err = Math.min(1.2, off * 1.5);
-    targetX += (Math.random() - 0.5) * 4.2 * err;
-    targetZ += zSign * Math.random() * 2.2 * err; // può andare lungo → fallo
+    const k = deep ? SERVE_DEEP_ERR : 1;
+    targetX += (Math.random() - 0.5) * 4.2 * err * k;
+    targetZ += zSign * Math.random() * 2.2 * err * k; // può andare lungo → fallo
   }
   if (tt < 0.4) {
     // carica troppo debole: rischio rete
@@ -446,12 +503,16 @@ function performServe(p, charge, joyAngle, serveType) {
   const dz = targetZ - ball.z;
   const dist = Math.max(0.5, Math.hypot(dx, dz));
   const ndx = dx / dist, ndz = dz / dist;
-  const tFlight = dist / speed;
-  // gravità efficace: il topspin aggiunge spinta verso il basso, va compensata nell'arco.
-  const gEff = 9.8 + Math.max(0, spin) * 8.0;
   ball.vx = ndx * speed;
   ball.vz = ndz * speed;
-  ball.vy = (0.25 - launchY) / tFlight + 0.5 * gEff * tFlight;
+  if (deep) {
+    ball.vy = solveServeVy(ball.x, launchY, ball.z, ndx, ndz, speed, spin, dist);
+  } else {
+    const tFlight = dist / speed;
+    // gravità efficace: il topspin aggiunge spinta verso il basso, va compensata nell'arco.
+    const gEff = 9.8 + Math.max(0, spin) * 8.0;
+    ball.vy = (0.25 - launchY) / tFlight + 0.5 * gEff * tFlight;
+  }
   ball.spin = spin;
   ball.curve = curve;      // il servizio slice mantiene la sua curva in volo
   ball.sideKick = 0;       // nessuno scatto laterale al rimbalzo: è roba del rally
@@ -477,6 +538,8 @@ function performServe(p, charge, joyAngle, serveType) {
 function performShot(p, shotType, charge, joyAngle, useSuper) {
   const ball = state.ball;
   if (!ball || !ball.inPlay || ball.held) return;
+  // Il servizio si risponde solo DOPO il suo primo rimbalzo (regola del tennis).
+  if (ball.type === 'serve' && ball.bounces === 0) return;
   // Non puoi colpire due volte di fila la STESSA palla: prima deve toccarla la
   // squadra avversaria. Blocca lo spam del tasto (multi-colpo sulla stessa presa
   // + caricamento istantaneo della super). Silenzioso: nessun evento "a vuoto".
@@ -758,29 +821,35 @@ function pushHitEffect(p, charge, timing, shotName, isSuper, sideX) {
 // ---------------------------------------------------------------------------
 // Fisica palla
 // ---------------------------------------------------------------------------
+// Fisica della palla in volo (attrito, gravità, Magnus, curva dello slice).
+// Unica fonte di verità: la usa stepBall e la usa la battuta per prevedere dove
+// cadrà il servizio, così previsione e volo reale coincidono esattamente.
+function integrateBallAir(b, dt) {
+  // air drag + magnus
+  const v = Math.hypot(b.vx, b.vy, b.vz);
+  b.vx -= b.vx * AIR_DRAG * v * dt;
+  b.vy -= b.vy * AIR_DRAG * v * dt;
+  b.vz -= b.vz * AIR_DRAG * v * dt;
+  // gravity
+  b.vy -= 9.8 * dt;
+  // magnus: topspin spinge giù; backspin spinge su
+  b.vy -= b.spin * 8.0 * dt;
+  // sidespin (slice): curva laterale mentre la palla è in volo
+  if (b.curve) {
+    b.vx += b.curve * 5.0 * dt;
+    b.curve *= (1 - dt * 0.5);
+  }
+
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+  b.z += b.vz * dt;
+}
+
 function stepBall(dt) {
   const ball = state.ball;
   if (!ball || ball.held) return;
 
-  // air drag + magnus
-  const dragK = AIR_DRAG;
-  const v = Math.hypot(ball.vx, ball.vy, ball.vz);
-  ball.vx -= ball.vx * dragK * v * dt;
-  ball.vy -= ball.vy * dragK * v * dt;
-  ball.vz -= ball.vz * dragK * v * dt;
-  // gravity
-  ball.vy -= 9.8 * dt;
-  // magnus: topspin spinge giù; backspin spinge su
-  ball.vy -= ball.spin * 8.0 * dt;
-  // sidespin (slice): curva laterale mentre la palla è in volo
-  if (ball.curve) {
-    ball.vx += ball.curve * 5.0 * dt;
-    ball.curve *= (1 - dt * 0.5);
-  }
-
-  ball.x += ball.vx * dt;
-  ball.y += ball.vy * dt;
-  ball.z += ball.vz * dt;
+  integrateBallAir(ball, dt);
 
   // rete: piano a z=0, altezza ≈ NET_H_CENTER, larghezza fino a sideline doubles
   const prevCrossed = ball.crossedNet;
@@ -950,15 +1019,20 @@ function awardPoint(team, reason) {
 // ---------------------------------------------------------------------------
 // Movimento giocatori
 // ---------------------------------------------------------------------------
-// true se p fa parte della squadra che RICEVE e il servizio non ha ancora
-// rimbalzato: in quella finestra non può superare la riga di servizio.
-function isReceiverWaitingServe(p) {
-  const sv = state.players[state.serverId];
-  if (!sv || p.team === sv.team) return false;
+// true dalla preparazione della battuta fino al primo rimbalzo del servizio: in
+// quella finestra chi riceve deve restare ad almeno RECEIVER_SERVE_MIN_Z dalla rete.
+function serveWaitActive() {
   if (state.phase === 'serving') return true;
   const b = state.ball;
   return !!(state.phase === 'rally' && b && b.inPlay && !b.held
     && b.type === 'serve' && b.bounces === 0);
+}
+
+// true se p fa parte della squadra che RICEVE e la finestra qui sopra è attiva.
+function isReceiverWaitingServe(p) {
+  const sv = state.players[state.serverId];
+  if (!sv || p.team === sv.team) return false;
+  return serveWaitActive();
 }
 
 function stepPlayers(dt) {
@@ -1033,13 +1107,13 @@ function stepPlayers(dt) {
     p.z += p.vz * dt;
 
     // limiti campo: ognuno resta nella PROPRIA metà, mai oltre la rete (z=0).
-    // Chi RICEVE non può avanzare oltre la riga di servizio finché la battuta non
-    // ha rimbalzato: altrimenti andrebbe a rete a prendere il servizio al volo,
-    // rendendo il gioco impossibile per chi serve.
+    // Chi RICEVE resta ad almeno RECEIVER_SERVE_MIN_Z dalla rete finché la battuta
+    // non ha rimbalzato: altrimenti andrebbe avanti a prendere il servizio al volo,
+    // rendendo il gioco impossibile per chi serve. Dopo il rimbalzo è di nuovo libero.
     const limX = COURT.DOUBLES_HALF_W + 2.5;
     const limZ = COURT.BASELINE_Z + 3.0;
     p.x = clamp(p.x, -limX, limX);
-    const nearLim = isReceiverWaitingServe(p) ? COURT.SERVICE_Z : 0.45;
+    const nearLim = isReceiverWaitingServe(p) ? RECEIVER_SERVE_MIN_Z : 0.45;
     if (p.team === 'A') p.z = clamp(p.z, -limZ, -nearLim);
     else p.z = clamp(p.z, nearLim, limZ);
 
@@ -1070,6 +1144,9 @@ function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function updateHitWindows() {
   const ball = state.ball;
   if (!ball || !ball.inPlay || ball.held) return;
+  // Il servizio va lasciato rimbalzare (regola del tennis): prima del suo primo
+  // rimbalzo non si apre nessuna finestra di colpo, né il cerchio verde.
+  if (ball.type === 'serve' && ball.bounces === 0) return;
   const now = Date.now();
   for (const p of Object.values(state.players)) {
     const distH = Math.hypot(ball.x - p.x, ball.z - p.z);
@@ -1131,6 +1208,8 @@ setInterval(() => {
     serveSide: state.serveSide,
     serveBox: state.serveBox,
     serveFault: state.serveFault,
+    // distanza minima dalla rete per chi riceve, finché il servizio non rimbalza (null = libero)
+    recvLimit: state.players[state.serverId] && serveWaitActive() ? RECEIVER_SERVE_MIN_Z : null,
     rallyCount: state.rallyCount,
     energy: state.energy,
     score: { ...state.score, labels: pointLabels() },

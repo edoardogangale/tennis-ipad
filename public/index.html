@@ -1434,6 +1434,25 @@ const sweetZone = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.66, 40),
 sweetZone.rotation.x = -Math.PI / 2; sweetZone.position.y = 0.022; sweetZone.visible = false;
 world.add(sweetZone);
 
+// Limite per chi riceve: finché il servizio non rimbalza la squadra che risponde
+// non può avvicinarsi alla rete oltre questa linea tratteggiata (vedi recvLimit dal
+// server). Non coincide con una riga del campo, quindi va mostrata: niente "muro invisibile".
+const recvLimitLine = (() => {
+  const c = makeCanvas(256, 8);
+  const g = c.getContext('2d');
+  g.fillStyle = '#ffd166';
+  for (let x = 0; x < 256; x += 32) g.fillRect(x, 0, 20, 8);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.repeat.set(6, 1);
+  const w = (COURT.DOUBLES_HALF_W + 0.6) * 2;
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 0.09),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.7, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.019; m.visible = false;
+  world.add(m);
+  return m;
+})();
+
 // anello carica colpo (visibile a tutti attorno a chi carica)
 const chargeRings = new Map();
 function getChargeRing(id) {
@@ -2151,6 +2170,16 @@ function frame(now) {
       hitZone.visible = hitZoneFill.visible = sweetZone.visible = false;
     }
 
+    // linea limite per chi riceve: solo per la squadra che risponde, finché il
+    // servizio non ha rimbalzato (il server manda recvLimit = null quando è libero)
+    const sv = (s.players || []).find(p => p.id === s.serverId);
+    if (me && sv && s.recvLimit && me.team !== sv.team) {
+      recvLimitLine.visible = true;
+      recvLimitLine.position.z = (me.team === 'A' ? -1 : 1) * s.recvLimit;
+    } else {
+      recvLimitLine.visible = false;
+    }
+
     // frecce di mira
     serveAim.visible = false;
     shotAim.visible = false;
@@ -2158,7 +2187,9 @@ function frame(now) {
       const flip = (myTeam === 'B') ? -1 : 1;
       const ax = -(joy.x || 0) * flip;
       const box = s.serveBox || { xSign: 1, zSign: me.team === 'A' ? 1 : -1 };
-      pointAim(serveAim, me.x, me.z, box.xSign * (COURT.SINGLES_HALF_W * 0.55) + ax * 1.6, box.zSign * (COURT.SERVICE_Z - 1.0));
+      // piatto e kick cercano il fondo del box (centro della fascia SERVE_DEEP_Z lato server)
+      const aimDepth = serveType === 'slice' ? COURT.SERVICE_Z - 1.0 : COURT.SERVICE_Z - 0.7;
+      pointAim(serveAim, me.x, me.z, box.xSign * (COURT.SINGLES_HALF_W * 0.55) + ax * 1.6, box.zSign * aimDepth);
     }
     if (me && charging && s.phase === 'rally') {
       const flip = (myTeam === 'B') ? -1 : 1;
